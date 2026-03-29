@@ -1,21 +1,26 @@
-"""TAL Command Center — Streamlit Dashboard v3."""
-import streamlit as st
+"""TAL Command Center — Streamlit entry point and router."""
+import os
 import datetime
+import streamlit as st
 
 st.set_page_config(
     page_title="TAL Command Center",
     page_icon="🎯",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-from db import (
-    get_stats, init_db, load_my_accounts,
-    get_accounts, get_account, get_account_count,
-    get_account_states, get_account_industries,
-)
-import tal_loader
-import mock_data
+import db
+from db import init_db, load_my_accounts, get_account_count
+from config import get_anthropic_key as _get_anthropic_key, MODEL, REP_ID
+from pages._dashboard import render as render_home
+from pages._tal import render as render_tal
+from pages._activity import render as render_activity
+from pages._events import render as render_events
+from pages._misc import render_changes, render_targets
+from pages._unmatched import render as render_unmatched
+from pages._leads import render_leads, render_claimed
+from pages._account_detail import render as render_account
 
 # ── DB Init ───────────────────────────────────────────────────────────────────
 @st.cache_resource
@@ -43,8 +48,8 @@ st.markdown("""
 <style>
 /* ── Layout ── */
 .block-container { padding-top: 1.5rem !important; max-width: 1280px !important; }
-section[data-testid="stSidebar"] { display: none !important; }
 #MainMenu, footer, header { visibility: hidden !important; }
+section[data-testid="stSidebar"] { display: none !important; }
 
 /* ── Header ── */
 .scout-header {
@@ -272,365 +277,84 @@ def check_password() -> bool:
     st.markdown('</div>', unsafe_allow_html=True)
     return False
 
-if not check_password():
-    st.stop()
+# Password gate disabled during development — re-enable before sharing
+# if not check_password():
+#     st.stop()
 
-# ── Cached data ───────────────────────────────────────────────────────────────
-@st.cache_data(ttl=300)
-def cached_stats():
-    return get_stats()
+# ── Claude Chat Bar ───────────────────────────────────────────────────────────
+import anthropic as _anthropic
 
-@st.cache_data(ttl=300)
-def cached_category_counts():
-    try:
-        return tal_loader.get_category_counts()
-    except Exception:
-        return {}
+CHAT_MODEL = MODEL
+CHAT_SYSTEM = (
+    "You are an AI assistant embedded in a NetSuite sales rep's Territory Account List tool "
+    "called TAL Command Center. You help with account research, prioritization, outreach ideas, "
+    "and anything else relevant to managing a sales territory.\n\n"
+    "Current page context:\n{page_context}"
+)
 
-@st.cache_data(ttl=300)
-def cached_account_count():
-    return get_account_count()
 
-@st.cache_data(ttl=300)
-def cached_states():
-    return get_account_states()
+def _get_chat_context() -> str:
+    if page == "account":
+        account_id = st.session_state.get("selected_account")
+        if account_id:
+            return db.get_account_chat_context(account_id)
+    return db.get_tal_summary_context()
 
-@st.cache_data(ttl=300)
-def cached_industries():
-    return get_account_industries()
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-TRIGGER_LABELS = {
-    "exec_hire": "Exec Hire",
-    "acquisition": "Acquisition/PE",
-    "expansion": "Expansion",
-    "outdated_system": "Legacy System",
-    "ecommerce": "Ecommerce",
-    "hiring_finance_exec": "Finance Hire",
-}
-TRIGGER_ICONS = {
-    "exec_hire": "🟡",
-    "acquisition": "🔴",
-    "expansion": "🟢",
-    "outdated_system": "⚪",
-    "ecommerce": "🔵",
-    "hiring_finance_exec": "🔥",
-}
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-def go(pg: str) -> None:
-    """Navigate to page via session state only — no href, no query params."""
-    st.session_state.current_page = pg
+with st.form(key="chat_form", clear_on_submit=True):
+    chat_cols = st.columns([8, 1, 1])
+    with chat_cols[0]:
+        user_input = st.text_input("Ask Claude", placeholder="Ask Claude about your accounts, signals, or outreach...",
+                                   label_visibility="collapsed")
+    with chat_cols[1]:
+        send = st.form_submit_button("Send", use_container_width=True, type="primary")
+    with chat_cols[2]:
+        clear = st.form_submit_button("Clear", use_container_width=True)
+
+if clear:
+    st.session_state.chat_history = []
     st.rerun()
 
-def back_btn(label: str, target: str) -> None:
-    st.markdown('<span class="back-btn-marker"></span>', unsafe_allow_html=True)
-    if st.button(label, key=f"back_{target}"):
-        go(target)
+if send and user_input.strip():
+    page_context = _get_chat_context()
+    system_prompt = CHAT_SYSTEM.format(page_context=page_context)
+    st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
+    try:
+        _client = _anthropic.Anthropic(api_key=_get_anthropic_key())
+        response = _client.messages.create(
+            model=CHAT_MODEL,
+            max_tokens=1024,
+            system=system_prompt,
+            messages=st.session_state.chat_history,
+        )
+        reply = response.content[0].text.strip()
+        st.session_state.chat_history.append({"role": "assistant", "content": reply})
+        db.log_ai_call({
+            "rep_id": REP_ID,
+            "call_type": "chat",
+            "prompt_used": system_prompt,
+            "model_version": CHAT_MODEL,
+            "question": user_input.strip(),
+            "response": reply,
+            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        })
+    except Exception as e:
+        st.error(f"Claude error: {e}")
+    st.rerun()
 
-def _score_badge(score) -> str:
-    score = score or 0
-    cls = "score-high" if score >= 50 else "score-mid" if score >= 25 else "score-low"
-    return f'<span class="score-badge {cls}">{score}</span>'
+if st.session_state.chat_history:
+    last = st.session_state.chat_history[-1]
+    if last["role"] == "assistant":
+        st.info(last["content"])
+    with st.expander("Full conversation", expanded=False):
+        for msg in st.session_state.chat_history:
+            role_label = "**You:**" if msg["role"] == "user" else "**Claude:**"
+            st.markdown(f"{role_label} {msg['content']}")
 
-# ── HOME ──────────────────────────────────────────────────────────────────────
-def render_home():
-    total = cached_account_count()
-    today_str = datetime.date.today().strftime("%B %-d, %Y")
-
-    # ── Header ────────────────────────────────────────────────────────────────
-    st.title("TAL Command Center")
-    st.caption(f"Brian O'Neill · Oracle NetSuite · {today_str} · {total} accounts")
-    st.divider()
-
-    # ── What's New ────────────────────────────────────────────────────────────
-    st.info(
-        f"📸 Screenshots: 3  ·  "
-        f"📰 Articles Forwarded: 7  ·  "
-        f"📣 SDR Updates: 2  ·  "
-        f"💼 LinkedIn Signals: {len(mock_data.MOCK_ACTIVITY)}  ·  "
-        f"📅 Events Added: {len(mock_data.MOCK_EVENTS)}"
-    )
-
-    # ── Tiles row 1 ───────────────────────────────────────────────────────────
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button(f"🏢 TAL Accounts\n\n{total}\n\nactive accounts",
-                     use_container_width=True, type="primary", key="tile_tal"):
-            go("tal")
-    with col2:
-        if st.button(f"📡 Recent Activity\n\n{len(mock_data.MOCK_ACTIVITY)}\n\nsignals this week",
-                     use_container_width=True, type="primary", key="tile_activity"):
-            go("activity")
-    with col3:
-        if st.button(f"📅 Events\n\n{len(mock_data.MOCK_EVENTS)}\n\nupcoming events",
-                     use_container_width=True, type="primary", key="tile_events"):
-            go("events")
-
-    # ── Tiles row 2 ───────────────────────────────────────────────────────────
-    col4, col5, col6 = st.columns(3)
-    with col4:
-        if st.button(f"📋 TAL Changes\n\n{len(mock_data.MOCK_CHANGES)}\n\nchanges this week",
-                     use_container_width=True, type="primary", key="tile_changes"):
-            go("changes")
-    with col5:
-        if st.button(f"🎯 Best Targets\n\n{len(mock_data.MOCK_TARGETS)}\n\nhigh-priority",
-                     use_container_width=True, type="primary", key="tile_targets"):
-            go("targets")
-    with col6:
-        if st.button(f"⚡ Unmatched\n\n0\n\nno unmatched yet",
-                     use_container_width=True, type="primary", key="tile_unmatched"):
-            go("unmatched")
-
-# ── TAL ───────────────────────────────────────────────────────────────────────
-def render_tal():
-    back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">TAL Accounts</div>', unsafe_allow_html=True)
-
-    col_s, col_i, col_st = st.columns([3, 2, 2])
-    with col_s:
-        search = st.text_input("Search company", placeholder="Company name...", label_visibility="collapsed")
-    with col_i:
-        all_industries = cached_industries()
-        selected_industries = st.multiselect("Industry", options=all_industries, placeholder="All industries", label_visibility="collapsed")
-    with col_st:
-        all_states = cached_states()
-        selected_states = st.multiselect("State", options=all_states, placeholder="All states", label_visibility="collapsed")
-
-    accounts = get_accounts(
-        search=search or None,
-        states=selected_states or None,
-        industries=selected_industries or None,
-    )
-
-    st.caption(f"{len(accounts)} accounts")
-
-    if not accounts:
-        st.info("No accounts found. Try adjusting your filters.")
-        return
-
-    header_cols = st.columns([3, 1, 1, 2, 2, 1])
-    for col, h in zip(header_cols, ["Company", "State", "Score", "Industry", "Last Signal", "Action"]):
-        col.markdown(f"**{h}**")
-    st.divider()
-
-    for acct in accounts:
-        cols = st.columns([3, 1, 1, 2, 2, 1])
-        score = acct.get("score") or 0
-        signal_date = acct.get("last_signal_date") or ""
-        signal_date_str = str(signal_date)[:10] if signal_date else "—"
-
-        with cols[0]:
-            domain = acct.get("domain") or ""
-            name = acct.get("company_name") or "—"
-            if domain:
-                st.markdown(f"**[{name}](https://{domain})**")
-            else:
-                st.markdown(f"**{name}**")
-        with cols[1]:
-            st.write(acct.get("state") or "—")
-        with cols[2]:
-            badge_cls = "score-high" if score >= 50 else "score-mid" if score >= 25 else "score-low"
-            st.markdown(
-                f'<span class="score-badge {badge_cls}">{score}</span>',
-                unsafe_allow_html=True,
-            )
-        with cols[3]:
-            st.write(acct.get("industry") or "—")
-        with cols[4]:
-            sc = acct.get("signal_count") or 0
-            st.caption(f"{sc} signals · {signal_date_str}")
-        with cols[5]:
-            if st.button("View", key=f"view_{acct['id']}"):
-                st.session_state.selected_account = acct["id"]
-                go("account")
-
-# ── ACTIVITY ──────────────────────────────────────────────────────────────────
-def render_activity():
-    back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Recent Activity</div>', unsafe_allow_html=True)
-
-    rows_html = ""
-    for item in mock_data.MOCK_ACTIVITY:
-        rows_html += f"""
-        <tr>
-            <td style="color:#667085;">{item['date']}</td>
-            <td><strong>{item['company']}</strong></td>
-            <td>{item['type']}</td>
-            <td>{item['detail']}</td>
-            <td style="color:#667085;">{item['source']}</td>
-        </tr>"""
-
-    st.markdown(f"""
-    <table class="ps-table">
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Company</th>
-                <th>Type</th>
-                <th>Detail</th>
-                <th>Source</th>
-            </tr>
-        </thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    """, unsafe_allow_html=True)
-
-# ── EVENTS ────────────────────────────────────────────────────────────────────
-def render_events():
-    back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Events</div>', unsafe_allow_html=True)
-
-    rows_html = ""
-    for item in mock_data.MOCK_EVENTS:
-        rows_html += f"""
-        <tr>
-            <td style="color:#667085;">{item['date']}</td>
-            <td><strong>{item['title']}</strong></td>
-            <td>{item['type']}</td>
-            <td>{item['location']}</td>
-            <td style="color:#667085;">{item['note']}</td>
-        </tr>"""
-
-    st.markdown(f"""
-    <table class="ps-table">
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Event</th>
-                <th>Type</th>
-                <th>Location</th>
-                <th>Notes</th>
-            </tr>
-        </thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    """, unsafe_allow_html=True)
-
-# ── CHANGES ───────────────────────────────────────────────────────────────────
-def render_changes():
-    back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">TAL Changes</div>', unsafe_allow_html=True)
-
-    rows_html = ""
-    for item in mock_data.MOCK_CHANGES:
-        rows_html += f"""
-        <tr>
-            <td style="color:#667085;">{item['date']}</td>
-            <td><strong>{item['company']}</strong></td>
-            <td>{item['change']}</td>
-            <td style="color:#667085;">{item['reason']}</td>
-        </tr>"""
-
-    st.markdown(f"""
-    <table class="ps-table">
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Company</th>
-                <th>Change</th>
-                <th>Reason</th>
-            </tr>
-        </thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    """, unsafe_allow_html=True)
-
-# ── TARGETS ───────────────────────────────────────────────────────────────────
-def render_targets():
-    back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Best Targets</div>', unsafe_allow_html=True)
-
-    rows_html = ""
-    for item in mock_data.MOCK_TARGETS:
-        badge_cls = "score-high" if item["score"] >= 50 else "score-mid" if item["score"] >= 25 else "score-low"
-        rows_html += f"""
-        <tr>
-            <td style="color:#667085;text-align:center;">#{item['rank']}</td>
-            <td><strong>{item['company']}</strong></td>
-            <td>{item['state']}</td>
-            <td>{item['vertical']}</td>
-            <td><span class="score-badge {badge_cls}">{item['score']}</span></td>
-            <td style="color:#667085;">{item['reason']}</td>
-        </tr>"""
-
-    st.markdown(f"""
-    <table class="ps-table">
-        <thead>
-            <tr>
-                <th style="text-align:center;">#</th>
-                <th>Company</th>
-                <th>State</th>
-                <th>Vertical</th>
-                <th>Score</th>
-                <th>Why</th>
-            </tr>
-        </thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    """, unsafe_allow_html=True)
-
-# ── UNMATCHED ─────────────────────────────────────────────────────────────────
-def render_unmatched():
-    back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Unmatched Signals</div>', unsafe_allow_html=True)
-    st.info("No unmatched signals yet.")
-
-# ── ACCOUNT ───────────────────────────────────────────────────────────────────
-def render_account():
-    back_btn("← Back to TAL", "tal")
-
-    account_id = st.session_state.get("selected_account")
-    if not account_id:
-        st.warning("No account selected.")
-        return
-
-    acct = get_account(account_id)
-    if not acct:
-        st.error(f"Account {account_id} not found.")
-        return
-
-    # ── Heading ───────────────────────────────────────────────────────────────
-    st.markdown(f"## {acct.get('company_name', 'Unknown')}")
-
-    # ── Basic info ────────────────────────────────────────────────────────────
-    col1, col2 = st.columns(2)
-
-    with col1:
-        for label, val in [
-            ("Industry",   acct.get("industry") or "—"),
-            ("State",      acct.get("state") or "—"),
-            ("City",       acct.get("city") or "—"),
-            ("Sales Rep",  acct.get("sales_rep") or "—"),
-        ]:
-            st.markdown(f'<div class="account-section-label">{label}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="account-section-value">{val}</div>', unsafe_allow_html=True)
-            st.write("")
-
-    with col2:
-        domain = acct.get("domain") or ""
-        if domain:
-            st.markdown(f'<div class="account-section-label">Website</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="account-section-value"><a href="https://{domain}" target="_blank">{domain}</a></div>', unsafe_allow_html=True)
-            st.write("")
-
-        li_url = acct.get("linkedin_url") or ""
-        if li_url:
-            st.markdown(f'<div class="account-section-label">LinkedIn</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="account-section-value"><a href="{li_url}" target="_blank">View Company</a></div>', unsafe_allow_html=True)
-            st.write("")
-
-        ns_url = acct.get("nscorp_url") or ""
-        if ns_url:
-            st.markdown(f'<div class="account-section-label">NetSuite</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="account-section-value"><a href="{ns_url}" target="_blank">Open in NetSuite</a></div>', unsafe_allow_html=True)
-            st.write("")
-
-    st.divider()
-
-    # ── Placeholder sections ──────────────────────────────────────────────────
-    for section in ["Signals", "Analysis", "Outreach", "Battle Card"]:
-        with st.expander(section):
-            st.caption("Coming in Phase 4")
+st.markdown("---")
 
 # ── Router ────────────────────────────────────────────────────────────────────
 if page == "home":
@@ -647,6 +371,10 @@ elif page == "targets":
     render_targets()
 elif page == "unmatched":
     render_unmatched()
+elif page == "leads":
+    render_leads()
+elif page == "claimed":
+    render_claimed()
 elif page == "account":
     render_account()
 else:
