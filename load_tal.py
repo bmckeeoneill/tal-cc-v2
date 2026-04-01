@@ -73,7 +73,7 @@ def load_csv() -> list[dict]:
 # Upsert to Supabase
 # ---------------------------------------------------------------------------
 
-def upsert(rows: list[dict], secrets: dict) -> None:
+def upsert(rows: list[dict], secrets: dict) -> dict:
     import psycopg2
     import psycopg2.extras
 
@@ -86,9 +86,16 @@ def upsert(rows: list[dict], secrets: dict) -> None:
     with_zi = [r for r in rows if r["zi_id"]]
     without = [r for r in rows if not r["zi_id"]]
 
+    # ── Get existing account names before upsert ──────────────────────────────
+    cur.execute("SELECT company_name FROM accounts WHERE rep_id = %s AND active = true", (REP_ID,))
+    existing_names = {r[0] for r in cur.fetchall()}
+    csv_names = {r["company_name"] for r in rows}
+    new_names = csv_names - existing_names
+
+    # ── Upsert accounts in CSV — mark all active, only set assigned=false for new ──
     if with_zi:
         psycopg2.extras.execute_values(cur, f"""
-            INSERT INTO accounts ({",".join(cols)})
+            INSERT INTO accounts ({",".join(cols)}, active, assigned)
             VALUES %s
             ON CONFLICT (zi_id, rep_id) DO UPDATE SET
                 company_name  = EXCLUDED.company_name,
@@ -103,13 +110,14 @@ def upsert(rows: list[dict], secrets: dict) -> None:
                 nscorp_url    = EXCLUDED.nscorp_url,
                 linkedin_url  = EXCLUDED.linkedin_url,
                 sales_rep     = EXCLUDED.sales_rep,
+                active        = true,
                 updated_at    = now()
-        """, [[r[c] for c in cols] for r in with_zi])
+        """, [[r[c] for c in cols] + [True, r["company_name"] not in new_names] for r in with_zi])
         print(f"  Upserted {len(with_zi)} accounts (by zi_id)")
 
     if without:
         psycopg2.extras.execute_values(cur, f"""
-            INSERT INTO accounts ({",".join(cols)})
+            INSERT INTO accounts ({",".join(cols)}, active, assigned)
             VALUES %s
             ON CONFLICT (company_name, rep_id) DO UPDATE SET
                 domain        = EXCLUDED.domain,
@@ -123,13 +131,24 @@ def upsert(rows: list[dict], secrets: dict) -> None:
                 nscorp_url    = EXCLUDED.nscorp_url,
                 linkedin_url  = EXCLUDED.linkedin_url,
                 sales_rep     = EXCLUDED.sales_rep,
+                active        = true,
                 updated_at    = now()
-        """, [[r[c] for c in cols] for r in without])
+        """, [[r[c] for c in cols] + [True, r["company_name"] not in new_names] for r in without])
         print(f"  Upserted {len(without)} accounts (no zi_id, by company_name)")
+
+    # ── Mark accounts NOT in CSV as inactive ──────────────────────────────────
+    removed_names = existing_names - csv_names
+    if removed_names:
+        cur.execute(
+            "UPDATE accounts SET active = false, updated_at = now() WHERE rep_id = %s AND company_name = ANY(%s)",
+            (REP_ID, list(removed_names))
+        )
 
     conn.commit()
     cur.close()
     conn.close()
+
+    return {"new": sorted(new_names), "removed": sorted(removed_names)}
 
 # ---------------------------------------------------------------------------
 # Verify
@@ -165,6 +184,16 @@ def verify(secrets: dict) -> None:
 if __name__ == "__main__":
     secrets = load_secrets()
     rows    = load_csv()
-    upsert(rows, secrets)
+    changes = upsert(rows, secrets)
     verify(secrets)
+
+    print(f"\n  New accounts added    : {len(changes['new'])}")
+    print(f"  Accounts marked inactive: {len(changes['removed'])}")
+    if changes["new"]:
+        for name in changes["new"]:
+            print(f"    + {name}")
+    if changes["removed"]:
+        print("  Removed:")
+        for name in changes["removed"]:
+            print(f"    - {name}")
     print("\nDone.")

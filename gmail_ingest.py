@@ -238,7 +238,7 @@ def upload_attachments_to_storage(supabase, signal_id: str, attachments: list) -
     """Upload image attachments to Supabase Storage. Returns file_url of first image, or None."""
     first_url = None
     for att in attachments:
-        filename = att.get("filename") or "attachment"
+        filename = (att.get("filename") or "attachment").replace(" ", "_")
         ext = os.path.splitext(filename.lower())[1]
         if ext not in IMAGE_EXTENSIONS:
             continue
@@ -277,7 +277,7 @@ def insert_signal(supabase, row):
 def poll_once(service, supabase):
     """Fetch unread messages, insert into Supabase, mark as read."""
     result = service.users().messages().list(
-        userId="me", q="is:unread newer_than:1d", maxResults=10
+        userId="me", q="is:unread newer_than:7d", maxResults=50
     ).execute()
 
     messages = result.get("messages", [])

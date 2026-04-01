@@ -7,7 +7,7 @@ from pages._shared import back_btn
 
 def render():
     back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Upcoming Events</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-heading" style="border-left:4px solid #4A4A5A;padding-left:10px;">Upcoming Events</div>', unsafe_allow_html=True)
 
     events = db.get_all_upcoming_events()
     if not events:

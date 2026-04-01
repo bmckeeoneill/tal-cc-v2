@@ -523,6 +523,12 @@ def process_all_signals() -> dict:
                     what = result.get("what_happened") or ""
                     why = result.get("why_relevant") or ""
                     summary = f"{what} {why}".strip()
+                    # Outlook embeds Oracle branding images — if Vision returns our own company,
+                    # the attachment isn't a real screenshot; fall back to subject line.
+                    _oracle_names = {"oracle", "netsuite", "oracle netsuite", "oracle | netsuite"}
+                    if (company_name or "").lower().strip() in _oracle_names:
+                        company_name = None
+                        source = "text_forward"
                 else:
                     # No image found despite source detection — fall through to text
                     source = "text_forward"

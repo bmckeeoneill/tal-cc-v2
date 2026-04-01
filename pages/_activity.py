@@ -8,7 +8,7 @@ from pages._shared import go, back_btn
 
 def render():
     back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Recent Activity</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-heading" style="border-left:4px solid #3D6B4F;padding-left:10px;">Recent Activity</div>', unsafe_allow_html=True)
 
     since = (date.today() - timedelta(days=7)).isoformat()
     resp = (

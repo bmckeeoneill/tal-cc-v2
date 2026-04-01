@@ -18,7 +18,7 @@ def _cached_industries():
 
 def render():
     back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">TAL Accounts</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-heading" style="border-left:4px solid #4A4A5A;padding-left:10px;">TAL Accounts</div>', unsafe_allow_html=True)
 
     col_s, col_ts, col_i, col_st = st.columns([3, 2, 2, 2])
     with col_s:

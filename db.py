@@ -35,7 +35,7 @@ def _normalize(account: dict) -> dict:
 
 def get_account_count(rep_id: str = "brianoneill") -> int:
     client = get_client()
-    resp = client.table("accounts").select("id", count="exact").eq("rep_id", rep_id).execute()
+    resp = client.table("accounts").select("id", count="exact").eq("rep_id", rep_id).eq("active", True).execute()
     return resp.count or 0
 
 
@@ -51,13 +51,13 @@ def load_my_accounts() -> None:
 
 def get_account_states(rep_id: str = "brianoneill") -> list[str]:
     client = get_client()
-    resp = client.table("accounts").select("state").eq("rep_id", rep_id).execute()
+    resp = client.table("accounts").select("state").eq("rep_id", rep_id).eq("active", True).execute()
     return sorted(set(r["state"] for r in (resp.data or []) if r.get("state")))
 
 
 def get_account_industries(rep_id: str = "brianoneill") -> list[str]:
     client = get_client()
-    resp = client.table("accounts").select("industry").eq("rep_id", rep_id).execute()
+    resp = client.table("accounts").select("industry").eq("rep_id", rep_id).eq("active", True).execute()
     return sorted(set(r["industry"] for r in (resp.data or []) if r.get("industry")))
 
 
@@ -67,9 +67,9 @@ def get_accounts(
     states: list[str] | None = None,
     industries: list[str] | None = None,
 ) -> list[dict]:
-    """Return accounts with optional filters, ordered by score desc then name."""
+    """Return active accounts with optional filters, ordered by score desc then name."""
     client = get_client()
-    q = client.table("accounts").select("*").eq("rep_id", rep_id)
+    q = client.table("accounts").select("*").eq("rep_id", rep_id).eq("active", True)
     if states:
         q = q.in_("state", states)
     if industries:
@@ -128,12 +128,13 @@ def get_unprocessed_signals(rep_id: str = "brianoneill") -> list[dict]:
 
 
 def get_account_names(rep_id: str = "brianoneill") -> list[dict]:
-    """Return list of {id, company_name} for all accounts."""
+    """Return list of {id, company_name} for all active accounts."""
     client = get_client()
     resp = (
         client.table("accounts")
         .select("id, company_name")
         .eq("rep_id", rep_id)
+        .eq("active", True)
         .execute()
     )
     return resp.data or []
@@ -244,67 +245,192 @@ def get_notes(account_id: str) -> list[dict]:
     return resp.data or []
 
 
-def get_account_chat_context(account_id: str) -> str:
-    """Return formatted account context string for Claude chat."""
-    from datetime import date, timedelta
-    client = get_client()
+def _build_account_block(a: dict, signals: list, notes: list, flagged_events: list) -> list[str]:
+    """Format a single account into context lines. Used by both chat context functions."""
+    lines = []
+    lines.append(f"=== {a.get('company_name')} ===")
 
-    acct_resp = client.table("accounts").select("company_name, industry, state, city").eq("id", account_id).single().execute()
-    acct = acct_resp.data or {}
+    loc = ", ".join(p for p in [a.get("city"), a.get("state"), a.get("zip")] if p)
+    lines.append(f"Industry: {a.get('industry') or '—'} | Location: {loc or '—'} | Website: {a.get('domain') or '—'}")
 
-    signals = get_signals_for_account(account_id, days=7)
-    notes = get_notes(account_id)
+    ts = a.get("tech_stack") or []
+    lines.append(f"Tech stack: {', '.join(ts) if ts else '—'}")
 
-    lines = [
-        f"Account: {acct.get('company_name', 'Unknown')}",
-        f"Industry: {acct.get('industry') or '—'} | Location: {acct.get('city') or ''}, {acct.get('state') or ''}",
-    ]
-    if signals:
-        lines.append(f"\nRecent signals ({len(signals)} this week):")
-        for s in signals[:5]:
-            lines.append(f"  - [{s.get('signal_type','other')}] {s.get('headline','')}: {s.get('summary','')[:120]}")
+    sdr = a.get("sdr_name")
+    if sdr:
+        sdr_date = (a.get("sdr_assigned_at") or "")[:10]
+        briefing = (a.get("briefing_sent_at") or "")[:10]
+        sdr_line = f"SDR: {sdr} (assigned {sdr_date})"
+        sdr_line += f" | Briefing sent: {briefing}" if briefing else " | Briefing: not sent"
+        lines.append(sdr_line)
     else:
-        lines.append("\nNo signals this week.")
+        lines.append("SDR: not assigned")
+
+    if signals:
+        lines.append(f"Signals ({len(signals)} total):")
+        for s in signals:
+            lines.append(f"  [{(s.get('signal_date') or '')[:10]}] [{s.get('signal_type', '')}] {s.get('headline', '')}: {s.get('summary', '')}")
+    else:
+        lines.append("Signals: none")
 
     if notes:
-        lines.append(f"\nNotes ({len(notes)} total, most recent):")
-        for n in notes[:3]:
-            ts = (n.get("created_at") or "")[:10]
-            lines.append(f"  - {ts}: {n.get('note_text','')[:150]}")
+        lines.append(f"Notes ({len(notes)} total):")
+        for n in notes:
+            lines.append(f"  [{(n.get('created_at') or '')[:10]}] {n.get('note_text', '')}")
+    else:
+        lines.append("Notes: none")
+
+    if flagged_events:
+        lines.append("Flagged events:")
+        for ev in flagged_events:
+            lines.append(f"  {ev.get('event_date', '')} | {ev.get('event_name', '')} | {(ev.get('event_type') or '').replace('_', ' ').title()} | {ev.get('registration_url') or '—'}")
+
+    lines.append("")
+    return lines
+
+
+def _bulk_fetch_account_data(client, account_ids: list) -> tuple[dict, dict, dict]:
+    """Bulk-fetch signals, notes, and flagged events for a list of account IDs.
+    Returns (signals_by_account, notes_by_account, flagged_by_account) dicts keyed by account_id."""
+    signals_by_account: dict = {}
+    notes_by_account: dict = {}
+    flagged_by_account: dict = {}
+
+    if not account_ids:
+        return signals_by_account, notes_by_account, flagged_by_account
+
+    signals_raw = (
+        client.table("signals_processed")
+        .select("account_id, signal_type, headline, summary, signal_date")
+        .in_("account_id", account_ids)
+        .order("signal_date", desc=True)
+        .limit(20000)
+        .execute()
+        .data or []
+    )
+    for s in signals_raw:
+        signals_by_account.setdefault(s["account_id"], []).append(s)
+
+    notes_raw = (
+        client.table("account_notes")
+        .select("account_id, note_text, created_at")
+        .in_("account_id", account_ids)
+        .order("created_at", desc=True)
+        .limit(10000)
+        .execute()
+        .data or []
+    )
+    for n in notes_raw:
+        notes_by_account.setdefault(n["account_id"], []).append(n)
+
+    flagged_raw = (
+        client.table("account_events")
+        .select("account_id, events(event_name, event_date, event_type, registration_url)")
+        .in_("account_id", account_ids)
+        .eq("flagged_for_briefing", True)
+        .limit(5000)
+        .execute()
+        .data or []
+    )
+    for f in flagged_raw:
+        ev = f.get("events") or {}
+        if ev:
+            flagged_by_account.setdefault(f["account_id"], []).append(ev)
+
+    return signals_by_account, notes_by_account, flagged_by_account
+
+
+def get_account_chat_context(account_id: str) -> str:
+    """Full context for one account + lightweight one-liners for all other territory accounts."""
+    from datetime import date
+    client = get_client()
+
+    # Full data for the focused account
+    acct_resp = client.table("accounts").select(
+        "id, company_name, industry, city, state, zip, street, domain, tech_stack, "
+        "sdr_name, sdr_assigned_at, briefing_sent_at, signal_count"
+    ).eq("id", account_id).single().execute()
+    acct = acct_resp.data or {}
+
+    signals_by, notes_by, flagged_by = _bulk_fetch_account_data(client, [account_id])
+
+    lines = ["## FOCUSED ACCOUNT\n"]
+    lines += _build_account_block(
+        acct,
+        signals_by.get(account_id, []),
+        notes_by.get(account_id, []),
+        flagged_by.get(account_id, []),
+    )
+
+    # Lightweight one-liners for the rest of the territory
+    all_accounts = (
+        client.table("accounts")
+        .select("id, company_name, industry, city, state, signal_count")
+        .eq("rep_id", acct.get("rep_id", "brianoneill"))
+        .eq("active", True)
+        .neq("id", account_id)
+        .order("company_name")
+        .limit(1000)
+        .execute()
+        .data or []
+    )
+    lines.append(f"\n## REST OF TERRITORY ({len(all_accounts)} accounts)\n")
+    for a in all_accounts:
+        city_state = ", ".join(p for p in [a.get("city"), a.get("state")] if p)
+        sc = a.get("signal_count") or 0
+        lines.append(f"- {a.get('company_name')} | {a.get('industry') or '—'} | {city_state or '—'} | {sc} signals")
 
     return "\n".join(lines)
 
 
 def get_tal_summary_context(rep_id: str = "brianoneill") -> str:
-    """Return account list + upcoming events for chat context on non-account pages."""
+    """Full territory context for chat: every active account with complete signals, notes, and events."""
     from datetime import date
     today = date.today().isoformat()
     client = get_client()
 
-    accounts = client.table("accounts").select("id, company_name, industry, state, signal_count").eq("rep_id", rep_id).order("signal_count", desc=True).execute().data or []
-    account_map = {a["id"]: a["company_name"] for a in accounts}
+    accounts = (
+        client.table("accounts")
+        .select(
+            "id, company_name, industry, city, state, zip, domain, tech_stack, "
+            "sdr_name, sdr_assigned_at, briefing_sent_at, signal_count"
+        )
+        .eq("rep_id", rep_id)
+        .eq("active", True)
+        .order("company_name")
+        .limit(1000)
+        .execute()
+        .data or []
+    )
+    account_ids = [a["id"] for a in accounts]
 
-    lines = [f"TAL: {len(accounts)} accounts managed by Brian O'Neill (NetSuite ERP sales rep).\n"]
-    for a in accounts[:50]:
-        sc = a.get("signal_count") or 0
-        lines.append(f"- {a.get('company_name')} | {a.get('industry') or 'Unknown'} | {a.get('state') or ''} | {sc} signals")
-    if len(accounts) > 50:
-        lines.append(f"... and {len(accounts) - 50} more accounts.")
+    signals_by, notes_by, flagged_by = _bulk_fetch_account_data(client, account_ids)
 
-    # Upcoming events + matched accounts
-    events = client.table("events").select("id, event_name, event_date, event_type, region").gte("event_date", today).order("event_date").execute().data or []
+    lines = [f"TAL TERRITORY — {len(accounts)} active accounts managed by Brian O'Neill (Oracle NetSuite AE).\n"]
+    for a in accounts:
+        aid = a["id"]
+        lines += _build_account_block(
+            a,
+            signals_by.get(aid, []),
+            notes_by.get(aid, []),
+            flagged_by.get(aid, []),
+        )
+
+    # All upcoming events
+    events = (
+        client.table("events")
+        .select("event_name, event_date, event_type, region")
+        .gte("event_date", today)
+        .order("event_date")
+        .execute()
+        .data or []
+    )
     if events:
-        lines.append(f"\nUpcoming events ({len(events)} total):")
-        for e in events[:20]:
-            # Get matched account names for this event
-            ae_resp = client.table("account_events").select("account_id").eq("event_id", e["id"]).execute().data or []
-            matched_names = [account_map.get(r["account_id"], "") for r in ae_resp if r["account_id"] in account_map]
+        lines.append(f"\nALL UPCOMING EVENTS ({len(events)} total):")
+        for e in events:
             region = f" · {e['region']}" if e.get("region") else ""
             etype = (e.get("event_type") or "").replace("_", " ").title()
-            match_str = f" → {len(matched_names)} accounts matched" if matched_names else ""
-            lines.append(f"- {e.get('event_date')} | {e.get('event_name')} | {etype}{region}{match_str}")
-        if len(events) > 20:
-            lines.append(f"... and {len(events) - 20} more events.")
+            lines.append(f"  {e.get('event_date')} | {e.get('event_name')} | {etype}{region}")
     else:
         lines.append("\nNo upcoming events in the system yet.")
 
@@ -343,7 +469,7 @@ def get_events_for_account(account_id: str) -> list[dict]:
     client = get_client()
     resp = (
         client.table("account_events")
-        .select("match_reason, events(id, event_name, event_date, event_type, region, registration_url, seismic_url)")
+        .select("match_reason, flagged_for_briefing, events(id, event_name, event_date, event_type, region, registration_url, seismic_url)")
         .eq("account_id", account_id)
         .execute()
     )
@@ -352,6 +478,7 @@ def get_events_for_account(account_id: str) -> list[dict]:
         ev = r.get("events") or {}
         if ev and ev.get("event_date", "9999") >= today:
             ev["match_reason"] = r.get("match_reason")
+            ev["flagged_for_briefing"] = r.get("flagged_for_briefing") or False
             rows.append(ev)
     return sorted(rows, key=lambda x: x.get("event_date", ""))
 
@@ -577,3 +704,49 @@ def mark_briefing_sent(account_id: str) -> None:
     client.table("accounts").update({
         "briefing_sent_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", account_id).execute()
+
+
+# ---------------------------------------------------------------------------
+# TAL refresh helpers
+# ---------------------------------------------------------------------------
+
+def get_new_unassigned_accounts(rep_id: str = "brianoneill") -> list[dict]:
+    """Active accounts not yet acknowledged after a TAL refresh."""
+    client = get_client()
+    resp = (
+        client.table("accounts")
+        .select("id, company_name, industry, state, created_at")
+        .eq("rep_id", rep_id)
+        .eq("active", True)
+        .eq("assigned", False)
+        .order("company_name")
+        .execute()
+    )
+    return resp.data or []
+
+
+def get_inactive_accounts(rep_id: str = "brianoneill") -> list[dict]:
+    """Accounts marked inactive (dropped off TAL)."""
+    client = get_client()
+    resp = (
+        client.table("accounts")
+        .select("id, company_name, industry, state, updated_at")
+        .eq("rep_id", rep_id)
+        .eq("active", False)
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    return resp.data or []
+
+
+def mark_assigned(account_id: str) -> None:
+    """Mark an account as acknowledged after TAL refresh."""
+    get_client().table("accounts").update({"assigned": True}).eq("id", account_id).execute()
+
+
+def get_tal_changes_count(rep_id: str = "brianoneill") -> int:
+    """Count for the TAL Changes tile: new unassigned + inactive accounts."""
+    client = get_client()
+    new_resp = client.table("accounts").select("id", count="exact").eq("rep_id", rep_id).eq("active", True).eq("assigned", False).execute()
+    inactive_resp = client.table("accounts").select("id", count="exact").eq("rep_id", rep_id).eq("active", False).execute()
+    return (new_resp.count or 0) + (inactive_resp.count or 0)

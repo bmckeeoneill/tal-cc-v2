@@ -160,6 +160,50 @@ def render():
 
     st.divider()
 
+    # ── Industry Brief ────────────────────────────────────────────────────────
+    with st.expander("Why NetSuite — Industry Brief"):
+        brief_key = f"industry_brief_{account_id}"
+        existing_brief = st.session_state.get(brief_key)
+        if existing_brief:
+            st.markdown(existing_brief)
+            if st.button("Regenerate", key=f"regen_brief_{account_id}"):
+                del st.session_state[brief_key]
+                st.rerun()
+        else:
+            industry = acct.get("industry") or ""
+            ts_list = acct.get("tech_stack") or []
+            if st.button("Generate Industry Brief", key=f"gen_brief_{account_id}"):
+                with st.spinner("Generating..."):
+                    brief_prompt = (
+                        "You are a NetSuite sales rep who knows this industry well. "
+                        "Write 3-5 short bullet points explaining why companies in this industry are moving to NetSuite.\n\n"
+                        f"Company: {acct.get('company_name', '')}\n"
+                        f"Industry: {industry or 'unknown'}\n"
+                        f"Current systems (if known): {', '.join(ts_list) or 'unknown'}\n\n"
+                        "Focus on:\n"
+                        "- The specific pain points NetSuite solves for this industry\n"
+                        "- What they are typically replacing (QuickBooks, Sage, spreadsheets, etc.)\n"
+                        "- The business triggers that drive the move (growth, complexity, multi-entity, inventory, etc.)\n\n"
+                        "Rules:\n"
+                        "- No marketing language\n"
+                        "- Short bullets, one idea each\n"
+                        "- Write like a rep who knows the space from field experience, not a brochure\n"
+                        "- 3-5 bullets only"
+                    )
+                    _cl = _anthropic.Anthropic(api_key=_get_anthropic_key())
+                    resp = _cl.messages.create(
+                        model=MODEL, max_tokens=400,
+                        messages=[{"role": "user", "content": brief_prompt}]
+                    )
+                    brief_text = resp.content[0].text.strip()
+                    db.log_ai_call({"rep_id": REP_ID, "call_type": "industry_brief",
+                                    "prompt_used": brief_prompt, "model_version": MODEL,
+                                    "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                    st.session_state[brief_key] = brief_text
+                    st.rerun()
+            else:
+                st.caption(f"Industry: {industry or '—'}")
+
     # ── Signals ───────────────────────────────────────────────────────────────
     with st.expander("Insights & Signals", expanded=True):
         signals = db.get_signals_for_account(account_id, days=30)
@@ -241,88 +285,11 @@ def render():
             st.write(n.get("note_text") or "")
             st.markdown("---")
 
-    # ── Relevant Events ───────────────────────────────────────────────────────
-    st.divider()
-    st.markdown("**Upcoming Events**")
-    acct_events = db.get_events_for_account(account_id)
-    if not acct_events:
-        st.caption("No upcoming events matched to this account.")
-    else:
-        for e in acct_events:
-            event_id = e.get("id") or e.get("event_id")
-            reg = f"[Register]({e['registration_url']})" if e.get("registration_url") else ""
-            seismic = f"[Seismic]({e['seismic_url']})" if e.get("seismic_url") else ""
-            links = "  ·  ".join(filter(None, [reg, seismic]))
-            etype = (e.get("event_type") or "").replace("_", " ").title()
-            region = f" · {e['region']}" if e.get("region") else ""
-            st.markdown(f"**{e.get('event_date', '')}** — {e.get('event_name', '')}  \n"
-                        f"<small style='color:#667085'>{etype}{region}</small>  {links}",
-                        unsafe_allow_html=True)
-
-            ae_resp = db.get_client().table("account_events").select("flagged_for_briefing").eq("account_id", account_id).eq("event_id", event_id).limit(1).execute()
-            is_flagged = (ae_resp.data or [{}])[0].get("flagged_for_briefing", False)
-
-            ev_btn1, ev_btn2 = st.columns(2)
-            with ev_btn1:
-                flag_label = "🚩 Flagged for Briefing" if is_flagged else "Flag for Briefing"
-                if st.button(flag_label, key=f"flag_{account_id}_{event_id}"):
-                    db.flag_event_for_briefing(account_id, event_id, not is_flagged)
-                    st.rerun()
-            with ev_btn2:
-                if st.button("Generate Invite", key=f"invite_{account_id}_{event_id}"):
-                    st.session_state[f"gen_invite_{account_id}_{event_id}"] = True
-
-            if st.session_state.get(f"gen_invite_{account_id}_{event_id}"):
-                existing_invite = db.get_event_invite(account_id, event_id)
-                if existing_invite and not st.session_state.get(f"reinvite_{account_id}_{event_id}"):
-                    invite_text = existing_invite["invite_body"]
-                else:
-                    with st.spinner("Generating invite..."):
-                        ts_list = acct.get("tech_stack") or []
-                        recent_sigs = db.get_signals_for_account(account_id, days=30)
-                        sig_summaries = " | ".join(s.get("summary", "") for s in recent_sigs[:3]) or "No recent signals."
-                        notes_list = db.get_notes(account_id)
-                        notes_text = " | ".join(n.get("note_text", "") for n in notes_list[:3]) or "No notes."
-                        invite_prompt = (
-                            "You are Brian O'Neill, a NetSuite ERP sales rep inviting a prospect to an event.\n\n"
-                            f"Account: {acct.get('company_name', '')}\n"
-                            f"Industry: {acct.get('industry') or 'unknown'}\n"
-                            f"Tech stack: {', '.join(ts_list) or 'Unknown'}\n"
-                            f"Recent signals: {sig_summaries}\n"
-                            f"Notes: {notes_text}\n\n"
-                            f"Event: {e.get('event_name', '')}\n"
-                            f"Event date: {e.get('event_date', '')}\n"
-                            f"Event type: {etype}\n"
-                            f"Registration link: {e.get('registration_url') or 'N/A'}\n\n"
-                        ) + _OUTREACH_TONE.replace(
-                            "2. Signal or trigger reference: one sentence. Why you are reaching out right now.",
-                            "2. Event reference: one sentence. Why this event is relevant to them right now. Include the registration link."
-                        )
-                        _cl2 = _anthropic.Anthropic(api_key=_get_anthropic_key())
-                        resp2 = _cl2.messages.create(model=MODEL, max_tokens=512,
-                                                     messages=[{"role": "user", "content": invite_prompt}])
-                        invite_text = resp2.content[0].text.strip()
-                        db.insert_event_invite({
-                            "account_id": account_id, "event_id": event_id,
-                            "invite_body": invite_text, "model_version": MODEL,
-                            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        })
-                        db.log_ai_call({"rep_id": REP_ID, "call_type": "event_invite",
-                                        "prompt_used": invite_prompt, "model_version": MODEL,
-                                        "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
-                        st.session_state[f"reinvite_{account_id}_{event_id}"] = False
-                st.text_area("Invite", value=invite_text, height=150,
-                             key=f"invite_display_{account_id}_{event_id}", label_visibility="collapsed")
-                if st.button("Regenerate Invite", key=f"reinvite_btn_{account_id}_{event_id}"):
-                    st.session_state[f"reinvite_{account_id}_{event_id}"] = True
-                    st.rerun()
-            st.write("")
-
     # ── Content Generation ────────────────────────────────────────────────────
     st.divider()
     st.markdown("**Content Generation**")
 
-    cg_cols = st.columns(2)
+    cg_cols = st.columns(3)
 
     with cg_cols[0]:
         if st.button("Generate Outreach", key=f"gen_outreach_{account_id}", use_container_width=True):
@@ -331,6 +298,12 @@ def render():
     with cg_cols[1]:
         if st.button("Generate Briefing", key=f"gen_briefing_{account_id}", use_container_width=True):
             st.session_state[f"show_briefing_{account_id}"] = True
+
+    with cg_cols[2]:
+        _op_ready = bool(st.session_state.get(f"onepager_html_{account_id}"))
+        _op_label = "✅ One Pager Ready" if _op_ready else "Generate One Pager"
+        if st.button(_op_label, key=f"gen_onepager_{account_id}", use_container_width=True):
+            st.session_state[f"show_onepager_{account_id}"] = True
 
     # ── Generate Outreach ─────────────────────────────────────────────────────
     if st.session_state.get(f"show_outreach_{account_id}"):
@@ -400,12 +373,20 @@ def render():
         st.markdown("---")
         st.markdown("**Briefing**")
         with st.spinner("Assembling briefing and sending email..."):
-            context = db.get_account_full_context(account_id)
-            acct_info = context["account"]
-            signals = context["signals"]
+            # Pull fresh data — use full acct record (has domain, nscorp_url, sdr_name)
+            signals = db.get_signals_for_account(account_id, days=365)
             events_list = db.get_flagged_events(account_id)
-            outreach = context["outreach"]
-            notes_list = context["notes"]
+            notes_list = db.get_notes(account_id)
+
+            outreach_resp = (
+                db.get_client().table("outreach_templates")
+                .select("email_body, trigger_type, generated_at")
+                .eq("account_id", account_id)
+                .order("generated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            outreach = (outreach_resp.data or [{}])[0]
 
             if outreach.get("email_body"):
                 outreach_text = outreach["email_body"]
@@ -416,8 +397,8 @@ def render():
                 p = (
                     "You are Brian O'Neill, a NetSuite ERP sales rep. "
                     "Write a short prospecting email to a decision-maker at the company below.\n\n"
-                    f"Prospect company: {acct_info.get('company_name', '')}\n"
-                    f"Industry: {acct_info.get('industry') or 'unknown'}\n"
+                    f"Prospect company: {acct.get('company_name', '')}\n"
+                    f"Industry: {acct.get('industry') or 'unknown'}\n"
                     f"Signal summary: {sig_sum}\n\n"
                 ) + _OUTREACH_TONE
                 r = _cl.messages.create(model=MODEL, max_tokens=512,
@@ -431,44 +412,113 @@ def render():
                 })
 
             today_str = datetime.date.today().strftime("%B %-d, %Y")
-            company = acct_info.get("company_name", "Unknown")
+            company = acct.get("company_name", "Unknown")
+            sdr_name = acct.get("sdr_name") or "there"
+            website = acct.get("domain") or ""
+            ns_url = acct.get("nscorp_url") or ""
+            location = ", ".join(filter(None, [acct.get("city"), acct.get("state")]))
+            industry = acct.get("industry") or ""
+            tech_stack = ", ".join(acct.get("tech_stack") or []) or "Unknown"
 
-            signals_block = "\n".join(
-                f"- [{s.get('signal_date','')[:10]}] {s.get('signal_type','').upper()}: {s.get('summary','')}"
-                for s in signals
-            ) or "No signals in last 30 days."
+            # ── Account overview block ────────────────────────────────────
+            overview_lines = [f"Company:   {company}"]
+            if industry:
+                overview_lines.append(f"Industry:  {industry}")
+            if location:
+                overview_lines.append(f"Location:  {location}")
+            if website:
+                overview_lines.append(f"Website:   https://{website}")
+            if ns_url:
+                overview_lines.append(f"NSCorp:    {ns_url}")
+            if tech_stack != "Unknown":
+                overview_lines.append(f"Tech stack: {tech_stack}")
+            overview_block = "\n".join(overview_lines)
 
-            events_block = "\n".join(
-                f"- {e.get('event_date','')} | {e.get('event_name','')} | {e.get('registration_url') or 'No link'}"
-                + (f"\n  Seismic: {e['seismic_url']}" if e.get("seismic_url") else "")
-                + (f"\n  Invite: {e['invite_body']}" if e.get("invite_body") else "")
-                for e in events_list
-            ) or "No flagged events."
+            # ── Signals block ─────────────────────────────────────────────
+            if signals:
+                sig_lines = []
+                for s in signals:
+                    line = f"[{s.get('signal_date','')[:10]}] {s.get('signal_type','other').upper()}: {s.get('summary','')}"
+                    if s.get("file_url"):
+                        line += f"\n  Attachment: {s['file_url']}"
+                    sig_lines.append(line)
+                signals_block = "\n\n".join(sig_lines)
+            else:
+                signals_block = "No signals on record."
 
-            notes_block = "\n".join(
-                f"- {(n.get('created_at',''))[:10]}: {n.get('note_text','')}"
-                for n in notes_list
-            ) or "No notes."
+            # ── Events block ──────────────────────────────────────────────
+            if events_list:
+                ev_lines = []
+                for e in events_list:
+                    ev_line = f"{e.get('event_date','')} — {e.get('event_name','')}"
+                    if e.get("registration_url"):
+                        ev_line += f"\n  Register:  {e['registration_url']}"
+                    if e.get("seismic_url"):
+                        ev_line += f"\n  Seismic:   {e['seismic_url']}"
+                    if e.get("invite_body"):
+                        ev_line += f"\n\n  Invite draft:\n  {e['invite_body'].strip()}"
+                    ev_lines.append(ev_line)
+                events_block = "\n\n".join(ev_lines)
+            else:
+                events_block = "No events flagged for this account."
 
-            ns_url = acct_info.get("nscorp_url") or ""
-            ns_line = f"NetSuite: {ns_url}" if ns_url else ""
+            # ── Notes block ───────────────────────────────────────────────
+            if notes_list:
+                notes_block = "\n\n".join(
+                    f"[{(n.get('created_at',''))[:10]}] {n.get('note_text','')}"
+                    for n in notes_list
+                )
+            else:
+                notes_block = "No notes on record."
 
-            body = f"""TCC Account Briefing
-Account: {company}
-Date: {today_str}
-{ns_line}
+            body = f"""Hi {sdr_name},
 
---- SIGNALS ---
+I see you're now working on {company}. Here's a briefing to get you up to speed — signals we've tracked, notes from our side, and outreach content you can use right away.
+
+How to use this:
+- ACCOUNT OVERVIEW has the website and NSCorp link for quick research
+- NOTES are my running observations on the account
+- SIGNALS is a log of buying activity we've picked up (most recent first)
+- OUTREACH DRAFT is a starting point for your first email — feel free to personalize
+- EVENTS are ones I've flagged as relevant, with invite drafts if I generated them
+
+Reach out if you have questions. Good luck with this one.
+
+Brian
+
+
+==============================
+ACCOUNT OVERVIEW
+==============================
+{overview_block}
+
+
+==============================
+NOTES ({len(notes_list)} total)
+==============================
+{notes_block}
+
+
+==============================
+SIGNALS ({len(signals)} total)
+==============================
 {signals_block}
 
---- UPCOMING EVENTS ---
-{events_block}
 
---- OUTREACH DRAFT ---
+==============================
+OUTREACH DRAFT
+==============================
 {outreach_text}
 
---- NOTES ---
-{notes_block}
+
+==============================
+FLAGGED EVENTS ({len(events_list)} flagged)
+==============================
+{events_block}
+
+
+---
+Generated by TAL Command Center on {today_str}
 """
             try:
                 import base64
@@ -492,3 +542,121 @@ Date: {today_str}
                 st.error(f"Email send failed: {e}")
                 st.text_area("Briefing (copy manually)", value=body, height=300,
                              key=f"briefing_fallback_{account_id}", label_visibility="collapsed")
+
+    # ── Generate One Pager ────────────────────────────────────────────────────
+    if st.session_state.get(f"show_onepager_{account_id}"):
+        st.markdown("---")
+        st.markdown("**One Pager**")
+
+        op_key = f"onepager_html_{account_id}"
+        if not st.session_state.get(op_key):
+            with st.spinner("Generating one pager with Claude..."):
+                import one_pager as _op
+                signals = db.get_signals_for_account(account_id, days=365)
+                notes = db.get_notes(account_id)
+                try:
+                    html = _op.generate_one_pager(acct, signals, notes)
+                    st.session_state[op_key] = html
+                    db.log_ai_call({
+                        "rep_id": REP_ID,
+                        "call_type": "one_pager_generation",
+                        "prompt_used": f"one_pager:{account_id}",
+                        "model_version": MODEL,
+                        "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    })
+                except Exception as e:
+                    st.error(f"One pager generation failed: {e}")
+
+        if st.session_state.get(op_key):
+            safe_name = (acct.get("company_name") or "account").replace(" ", "_").replace("/", "-")
+            st.download_button(
+                label="Download One Pager (HTML → print to PDF)",
+                data=st.session_state[op_key].encode("utf-8"),
+                file_name=f"{safe_name}_one_pager.html",
+                mime="text/html",
+                key=f"dl_onepager_{account_id}",
+            )
+            if st.button("Regenerate", key=f"regen_onepager_{account_id}"):
+                del st.session_state[op_key]
+                st.rerun()
+
+    # ── Relevant Events ───────────────────────────────────────────────────────
+    st.divider()
+    st.markdown("**Upcoming Events**")
+    acct_events = db.get_events_for_account(account_id)
+    if not acct_events:
+        st.caption("No upcoming events matched to this account.")
+    else:
+        for e in acct_events:
+            event_id = e.get("id") or e.get("event_id")
+            reg = f"[Register]({e['registration_url']})" if e.get("registration_url") else ""
+            seismic = f"[Seismic]({e['seismic_url']})" if e.get("seismic_url") else ""
+            links = "  ·  ".join(filter(None, [reg, seismic]))
+            etype = (e.get("event_type") or "").replace("_", " ").title()
+            region = f" · {e['region']}" if e.get("region") else ""
+            st.markdown(f"**{e.get('event_date', '')}** — {e.get('event_name', '')}  \n"
+                        f"<small style='color:#667085'>{etype}{region}</small>  {links}",
+                        unsafe_allow_html=True)
+
+            is_flagged = e.get("flagged_for_briefing", False)
+
+            ev_btn1, ev_btn2 = st.columns(2)
+            with ev_btn1:
+                flag_label = "🚩 Flagged for Briefing" if is_flagged else "Flag for Briefing"
+                if st.button(flag_label, key=f"flag_{account_id}_{event_id}"):
+                    db.flag_event_for_briefing(account_id, event_id, not is_flagged)
+                    st.rerun()
+            with ev_btn2:
+                if st.button("Generate Invite", key=f"invite_{account_id}_{event_id}"):
+                    st.session_state[f"gen_invite_{account_id}_{event_id}"] = True
+
+            if st.session_state.get(f"gen_invite_{account_id}_{event_id}"):
+                existing_invite = db.get_event_invite(account_id, event_id)
+                if existing_invite and not st.session_state.get(f"reinvite_{account_id}_{event_id}"):
+                    invite_text = existing_invite["invite_body"]
+                else:
+                    with st.spinner("Generating invite..."):
+                        ts_list = acct.get("tech_stack") or []
+                        recent_sigs = db.get_signals_for_account(account_id, days=30)
+                        sig_summaries = " | ".join(s.get("summary", "") for s in recent_sigs[:3]) or "No recent signals."
+                        notes_list = db.get_notes(account_id)
+                        notes_text = " | ".join(n.get("note_text", "") for n in notes_list[:3]) or "No notes."
+                        invite_prompt = (
+                            "You are Brian O'Neill, a NetSuite ERP sales rep inviting a prospect to an event.\n\n"
+                            f"Account: {acct.get('company_name', '')}\n"
+                            f"Industry: {acct.get('industry') or 'unknown'}\n"
+                            f"Tech stack: {', '.join(ts_list) or 'Unknown'}\n"
+                            f"Recent signals: {sig_summaries}\n"
+                            f"Notes: {notes_text}\n\n"
+                            f"Event: {e.get('event_name', '')}\n"
+                            f"Event date: {e.get('event_date', '')}\n"
+                            f"Event type: {etype}\n"
+                            f"Registration link: {e.get('registration_url') or 'N/A'}\n\n"
+                        ) + _OUTREACH_TONE.replace(
+                            "2. Signal or trigger reference: one sentence. Why you are reaching out right now.",
+                            "2. Event reference: one sentence. Why this event is relevant to them right now. Include the registration link."
+                        ) + (
+                            "\n\nBefore the email body, write a subject line on its own line in this format:\n"
+                            "Subject: [subject here]\n\n"
+                            "Subject line rules: short, lowercase is fine, sounds like a human typed it fast. "
+                            "No colons, no buzzwords, nothing polished. Examples: 'quick one', 'saw this and thought of you', 're: the AI event next month'."
+                        )
+                        _cl2 = _anthropic.Anthropic(api_key=_get_anthropic_key())
+                        resp2 = _cl2.messages.create(model=MODEL, max_tokens=512,
+                                                     messages=[{"role": "user", "content": invite_prompt}])
+                        invite_text = resp2.content[0].text.strip()
+                        db.insert_event_invite({
+                            "account_id": account_id, "event_id": event_id,
+                            "invite_body": invite_text, "model_version": MODEL,
+                            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        })
+                        db.log_ai_call({"rep_id": REP_ID, "call_type": "event_invite",
+                                        "prompt_used": invite_prompt, "model_version": MODEL,
+                                        "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                        st.session_state[f"reinvite_{account_id}_{event_id}"] = False
+                st.text_area("Invite", value=invite_text, height=150,
+                             key=f"invite_display_{account_id}_{event_id}", label_visibility="collapsed")
+                if st.button("Regenerate Invite", key=f"reinvite_btn_{account_id}_{event_id}"):
+                    st.session_state[f"reinvite_{account_id}_{event_id}"] = True
+                    st.rerun()
+            st.write("")

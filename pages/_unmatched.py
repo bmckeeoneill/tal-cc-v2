@@ -8,7 +8,7 @@ from pages._shared import back_btn
 
 def render():
     back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Unmatched Signals</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-heading" style="border-left:4px solid #B07D2E;padding-left:10px;">Unmatched Signals</div>', unsafe_allow_html=True)
 
     client = db.get_client()
     resp = (

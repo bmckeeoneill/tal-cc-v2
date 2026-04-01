@@ -94,51 +94,6 @@ section[data-testid="stSidebar"] { display: none !important; }
 }
 .pill:hover { background: #c8e2ea; }
 
-/* ── Tile grid ── */
-.tile-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    margin-bottom: 28px;
-}
-.tile {
-    background: #36677D;
-    color: white;
-    border-radius: 12px;
-    padding: 22px 24px 20px 24px;
-    cursor: pointer;
-    transition: opacity 0.15s, transform 0.1s;
-    text-decoration: none;
-    display: block;
-}
-.tile:hover { opacity: 0.92; transform: translateY(-1px); }
-.tile.unmatched { background: #E2C06B; color: #13212C; }
-.tile-header {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    margin-bottom: 14px;
-}
-.tile-icon { font-size: 1.3rem; }
-.tile-title {
-    font-size: 0.88rem;
-    font-weight: 600;
-    opacity: 0.88;
-}
-.tile.unmatched .tile-title { opacity: 0.75; }
-.tile-stat {
-    font-size: 3rem;
-    font-weight: 700;
-    line-height: 1;
-    margin-bottom: 5px;
-}
-.tile-subtitle {
-    font-size: 0.78rem;
-    opacity: 0.65;
-    font-weight: 400;
-}
-.tile.unmatched .tile-subtitle { opacity: 0.6; }
-
 /* ── Page headings ── */
 .page-heading {
     font-size: 1.3rem;
@@ -147,32 +102,8 @@ section[data-testid="stSidebar"] { display: none !important; }
     margin: 0 0 20px 0;
 }
 
-/* ── Tile nav overlay button ── */
-.tile { pointer-events: none; }
-div[data-testid="column"]:has(.tile-nav) {
-    position: relative !important;
-}
-div[data-testid="column"]:has(.tile-nav):hover .tile {
-    opacity: 0.9;
-    transform: translateY(-1px);
-    transition: opacity 0.15s, transform 0.1s;
-}
-div[data-testid="column"]:has(.tile-nav) div[data-testid="stButton"] button {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    opacity: 0 !important;
-    cursor: pointer !important;
-    z-index: 10 !important;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
 /* ── Pill buttons ── */
-div[data-testid="column"]:has(.pill-marker) div[data-testid="stButton"] > button {
+div[data-testid="stMarkdown"]:has(.pill-marker) ~ div[data-testid="stButton"] > button {
     background: #E7F2F5 !important;
     color: #36677D !important;
     border: 1px solid #b8d4dc !important;
@@ -182,7 +113,7 @@ div[data-testid="column"]:has(.pill-marker) div[data-testid="stButton"] > button
     font-weight: 600 !important;
     white-space: nowrap !important;
 }
-div[data-testid="column"]:has(.pill-marker) div[data-testid="stButton"] > button:hover {
+div[data-testid="stMarkdown"]:has(.pill-marker) ~ div[data-testid="stButton"] > button:hover {
     background: #c8e2ea !important;
     border-color: #a0c4cf !important;
 }
@@ -307,7 +238,7 @@ if "chat_history" not in st.session_state:
 with st.form(key="chat_form", clear_on_submit=True):
     chat_cols = st.columns([8, 1, 1])
     with chat_cols[0]:
-        user_input = st.text_input("Ask Claude", placeholder="Ask Claude about your accounts, signals, or outreach...",
+        user_input = st.text_input("Ask Claude", placeholder="Ask your TAL assistant anything",
                                    label_visibility="collapsed")
     with chat_cols[1]:
         send = st.form_submit_button("Send", use_container_width=True, type="primary")

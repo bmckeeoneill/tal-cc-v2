@@ -200,50 +200,15 @@ def main():
     if counts["total"] == 0:
         print("  No unprocessed signals.\n")
 
-    # Step 2: Weekly analysis — only for accounts with signals this week
-    print("Step 2: Running weekly account analysis...")
-    account_names = {a["id"]: a["company_name"] for a in db.get_account_names(REP_ID)}
-
-    # Pull distinct account_ids from signals_processed in last 7 days (one query)
-    from datetime import date, timedelta
-    since = (date.today() - timedelta(days=7)).isoformat()
-    supabase_client = db.get_client()
-    active_resp = (
-        supabase_client.table("signals_processed")
-        .select("account_id")
-        .eq("rep_id", REP_ID)
-        .gte("signal_date", since)
-        .execute()
-    )
-    updated_ids = {r["account_id"] for r in (active_resp.data or []) if r.get("account_id")}
-
-    for account_id in updated_ids:
-        company_name = account_names.get(account_id, account_id)
-        try:
-            run_weekly_analysis(client, account_id, company_name)
-            print(f"  ✓ {company_name}")
-        except Exception as e:
-            print(f"  ✗ {company_name}: {e}")
-
-    print(f"  Analyzed {len(updated_ids)} account(s).\n")
-
-    # Step 3: Weekly digest
-    print("Step 3: Scoring weekly digest...")
-    try:
-        run_weekly_digest(client, updated_ids)
-        print("  ✓ Digest written.\n")
-    except Exception as e:
-        print(f"  ✗ Digest error: {e}\n")
-
     # Summary
     pending = db.get_pending_review_count(REP_ID)
     print("=== Summary ===")
     print(f"  Signals processed : {counts['matched']}")
     print(f"  Routed to review  : {counts['review_queue']}")
-    print(f"  Accounts analyzed : {len(updated_ids)}")
     print(f"  Pending review    : {pending}")
     print(f"  Errors            : {counts['errors']}")
     print(f"\nFinished: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # NOTE: Weekly analysis and digest scoring are deferred to a future phase.
 
 
 if __name__ == "__main__":

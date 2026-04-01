@@ -7,7 +7,7 @@ from pages._shared import go, back_btn
 
 def render_leads():
     back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Leads</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-heading" style="border-left:4px solid #B07D2E;padding-left:10px;">Leads to Check</div>', unsafe_allow_html=True)
 
     leads = db.get_active_leads()
     if not leads:
@@ -36,7 +36,7 @@ def render_leads():
 
 def render_claimed():
     back_btn("← Home", "home")
-    st.markdown('<div class="page-heading">Claimed Awaiting Briefing</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-heading" style="border-left:4px solid #B07D2E;padding-left:10px;">Claimed Awaiting Briefing</div>', unsafe_allow_html=True)
 
     accounts = db.get_claimed_awaiting_briefing()
     if not accounts:
