@@ -439,4 +439,10 @@ Files use underscore prefix (`_`) to prevent Streamlit's `pages/` auto-discovery
 
 ### Remaining for Phase 6
 - Streamlit Cloud deployment (connect repo, add secrets, verify load)
-- Cron jobs on Mac for gmail_ingest.py and run_pipeline.py
+
+### Already done — do not re-ask or re-build
+- Cron jobs: running on Mac, pointing to TAL_CC_clean/venv. Ingest every 5 min M-F 8-6 PT, every 15 min off-hours. Pipeline every 5 min M-F 8-6 PT only.
+- Pipeline Scout tile: live on dashboard (links to external tool via secrets)
+- Quick Links bar: live on dashboard
+- All Phase 6 steps 1–8: complete (cleanup, page split, GitHub, tech stack, generate invite, flag for briefing, leads tile, SDR + claimed awaiting briefing)
+- Outreach tone rules applied to all Claude prompts

@@ -275,8 +275,12 @@ def write_matched_signal(
     confidence: float,
     summary: str,
     source: str,
+    headline: str | None = None,
 ) -> None:
     now = datetime.now(timezone.utc)
+
+    # Use provided headline; fall back to subject (never use bare screenshot filenames)
+    resolved_headline = headline or signal.get("subject") or ""
 
     db.insert_signals_processed({
         "raw_id": signal["id"],
@@ -285,7 +289,7 @@ def write_matched_signal(
         "signal_type": signal_type,
         "signal_source": source,
         "source": source,
-        "headline": signal.get("subject") or "",
+        "headline": resolved_headline,
         "summary": summary,
         "signal_date": now.date().isoformat(),
         "match_confidence": round(confidence, 2),
@@ -417,6 +421,7 @@ def process_all_signals() -> dict:
             company_name = None
             signal_type = "other"
             summary = ""
+            screenshot_headline = None
 
             # ── Events digest ─────────────────────────────────────────────
             if source == "events_digest":
@@ -523,6 +528,9 @@ def process_all_signals() -> dict:
                     what = result.get("what_happened") or ""
                     why = result.get("why_relevant") or ""
                     summary = f"{what} {why}".strip()
+                    # Build a meaningful headline from extracted data instead of the screenshot filename
+                    _stype_label = signal_type.replace("_", " ").title()
+                    screenshot_headline = f"{company_name}: {_stype_label}" if company_name else _stype_label
                     # Outlook embeds Oracle branding images — if Vision returns our own company,
                     # the attachment isn't a real screenshot; fall back to subject line.
                     _oracle_names = {"oracle", "netsuite", "oracle netsuite", "oracle | netsuite"}
@@ -574,7 +582,8 @@ def process_all_signals() -> dict:
                 if account_id:
                     write_matched_signal(
                         client, signal, account_id, company_name,
-                        signal_type, confidence, summary, source
+                        signal_type, confidence, summary, source,
+                        headline=screenshot_headline,
                     )
                     counts["matched"] += 1
                     print(f"  ✓ [{source}] Matched {company_name!r} → {best_match!r} ({confidence:.0f}%)")

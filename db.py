@@ -179,7 +179,7 @@ def get_pending_review_count(rep_id: str = "brianoneill") -> int:
 
 
 def get_signals_for_account(account_id: str, days: int = 7) -> list[dict]:
-    """Return signals_processed for an account in the last N days."""
+    """Return signals_processed for an account in the last N days, deduped by raw_id."""
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     client = get_client()
@@ -191,7 +191,17 @@ def get_signals_for_account(account_id: str, days: int = 7) -> list[dict]:
         .order("signal_date", desc=True)
         .execute()
     )
-    return resp.data or []
+    # Deduplicate by raw_id — keeps first (most recent) occurrence per source email
+    seen_raw_ids: set = set()
+    deduped = []
+    for s in (resp.data or []):
+        raw_id = s.get("raw_id")
+        if raw_id and raw_id in seen_raw_ids:
+            continue
+        if raw_id:
+            seen_raw_ids.add(raw_id)
+        deduped.append(s)
+    return deduped
 
 
 def insert_weekly_analysis(row: dict) -> None:
