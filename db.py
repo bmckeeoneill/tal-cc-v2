@@ -760,3 +760,179 @@ def get_tal_changes_count(rep_id: str = "brianoneill") -> int:
     new_resp = client.table("accounts").select("id", count="exact").eq("rep_id", rep_id).eq("active", True).eq("assigned", False).execute()
     inactive_resp = client.table("accounts").select("id", count="exact").eq("rep_id", rep_id).eq("active", False).execute()
     return (new_resp.count or 0) + (inactive_resp.count or 0)
+
+
+# ---------------------------------------------------------------------------
+# Similar Customers (pgvector)
+# ---------------------------------------------------------------------------
+
+def embed_text(text: str) -> list[float]:
+    """Embed a string using OpenAI text-embedding-3-small. Returns vector as list of floats."""
+    import os, re
+    import openai
+
+    # Resolve API key: env → secrets.toml → Streamlit secrets
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        secrets_path = os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml")
+        if os.path.exists(secrets_path):
+            content = open(secrets_path).read()
+            m = re.search(r'\[openai\].*?api_key\s*=\s*"([^"]+)"', content, re.DOTALL)
+            if m:
+                api_key = m.group(1)
+    if not api_key:
+        try:
+            import streamlit as st
+            api_key = st.secrets["openai"]["api_key"]
+        except Exception:
+            pass
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not found in env, secrets.toml [openai], or Streamlit secrets.")
+
+    client = openai.OpenAI(api_key=api_key)
+    resp = client.embeddings.create(model="text-embedding-3-small", input=text)
+    return resp.data[0].embedding
+
+
+def _scrape_website_description(domain: str, company_name: str) -> str | None:
+    """Fetch a company's website and use Claude to extract a plain-English description.
+    Returns description string, or None if scrape/summarization fails.
+    """
+    import anthropic
+    import urllib.request
+
+    if not domain:
+        return None
+
+    url = domain if domain.startswith("http") else f"https://{domain}"
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = resp.read(30000).decode("utf-8", errors="ignore")
+    except Exception:
+        # Try http if https failed
+        try:
+            http_url = url.replace("https://", "http://")
+            req = urllib.request.Request(http_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                raw = resp.read(30000).decode("utf-8", errors="ignore")
+        except Exception:
+            return None
+
+    # Strip tags to reduce noise before sending to Claude
+    import re
+    text = re.sub(r"<script[^>]*>.*?</script>", " ", raw, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()[:8000]
+
+    if len(text) < 50:
+        return None
+
+    prompt = (
+        f"Visit this website content for {company_name} and describe in 2-3 sentences "
+        "what this company does, what they make or sell, who their customers are, and what industry they operate in. "
+        "Be specific. Return only the description, nothing else.\n\n"
+        f"WEBSITE CONTENT:\n{text}"
+    )
+
+    try:
+        from config import get_anthropic_key, MODEL
+        cl = anthropic.Anthropic(api_key=get_anthropic_key())
+        resp = cl.messages.create(model=MODEL, max_tokens=256,
+                                  messages=[{"role": "user", "content": prompt}])
+        return resp.content[0].text.strip()
+    except Exception:
+        return None
+
+
+def get_similar_customers(account_id: str, limit: int = 5) -> list[dict]:
+    """Return top similar NetSuite customers for a given account using vector cosine similarity."""
+    import datetime
+
+    client = get_client()
+
+    # Pull account fields
+    acct_resp = client.table("accounts").select("company_name, industry, domain, tech_stack").eq("id", account_id).single().execute()
+    acct = acct_resp.data or {}
+
+    company_name = acct.get("company_name") or ""
+    industry = acct.get("industry") or ""
+
+    # Try to get a rich description from the website
+    description = _scrape_website_description(acct.get("domain"), company_name)
+
+    if description:
+        query_text = description
+    else:
+        # Fallback: company name + industry + tech stack
+        parts = [company_name]
+        if industry:
+            parts.append(industry)
+        tech = acct.get("tech_stack")
+        if tech:
+            parts.append(", ".join(tech) if isinstance(tech, list) else str(tech))
+        query_text = ". ".join(p for p in parts if p).strip()
+
+    # Log scrape result
+    try:
+        log_ai_call({
+            "rep_id": "brianoneill",
+            "call_type": "similar_customers_scrape",
+            "prompt_used": query_text,
+            "model_version": MODEL if description else "fallback",
+            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass
+
+    embedding = embed_text(query_text)
+
+    # Log embedding call
+    try:
+        log_ai_call({
+            "rep_id": "brianoneill",
+            "call_type": "similar_customers_embedding",
+            "prompt_used": query_text,
+            "model_version": "text-embedding-3-small",
+            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass
+
+    # Log the call
+    try:
+        log_ai_call({
+            "rep_id": "brianoneill",
+            "call_type": "similar_customers_embedding",
+            "prompt_used": query_text,
+            "model_version": "text-embedding-3-small",
+            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass
+
+    # Fetch a larger candidate pool, then filter out TAL accounts
+    resp = client.rpc("match_customers", {
+        "query_embedding": embedding,
+        "match_count": limit * 10,
+    }).execute()
+    candidates = resp.data or []
+
+    # Load TAL account names to exclude
+    tal_resp = client.table("accounts").select("company_name").eq("rep_id", "brianoneill").eq("active", True).execute()
+    tal_names = {(r.get("company_name") or "").lower().strip() for r in (tal_resp.data or [])}
+
+    from rapidfuzz import fuzz
+    results = []
+    for c in candidates:
+        name = (c.get("company_name") or "").lower().strip()
+        # Exclude if it fuzzy-matches any TAL account at 85%+
+        if any(fuzz.ratio(name, t) >= 85 for t in tal_names):
+            continue
+        results.append(c)
+        if len(results) == limit:
+            break
+
+    return results

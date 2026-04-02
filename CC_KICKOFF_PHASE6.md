@@ -446,3 +446,39 @@ Files use underscore prefix (`_`) to prevent Streamlit's `pages/` auto-discovery
 - Quick Links bar: live on dashboard
 - All Phase 6 steps 1–8: complete (cleanup, page split, GitHub, tech stack, generate invite, flag for briefing, leads tile, SDR + claimed awaiting briefing)
 - Outreach tone rules applied to all Claude prompts
+
+---
+
+## Session Notes (2026-04-01)
+
+### Completed this session
+
+**Venv rebuilt** — venv had hardcoded paths from old project location. Deleted and recreated at `TAL_CC_clean/venv/`, reinstalled from requirements.txt.
+
+**Event date year inference fixed** — `_infer_year()` now uses signal's `received_at` date as reference instead of today. Events within 60 days before received date keep current year. Fixed 70 existing 2027 events → 2026 in DB.
+
+**Claude fallback for events parser** — if regex parser finds nothing, falls back to Claude to extract events from unstructured email body. Same output shape, same downstream processing.
+
+**One pager attached to briefing** — if one pager has been generated this session, it auto-attaches as HTML file when briefing is sent. No checkbox needed — green button state is the signal.
+
+**Signal dedup** — `get_signals_for_account()` now deduplicates by `raw_id` so same source email doesn't appear as multiple signals.
+
+**Screenshot headlines** — screenshot signals now get a readable headline (`Company: Signal Type`) instead of the raw filename.
+
+**Similar Customers feature** — full implementation:
+- pgvector enabled in Supabase, `customers` table created with ivfflat index
+- `match_customers` RPC function deployed
+- `load_customers.py` ingests from `customers.csv` in project root (5,750 rows loaded)
+- `embed_text()` and `get_similar_customers()` added to `db.py`
+- Before embedding, Claude scrapes the account's website and summarizes what the company does — used as query text. Falls back to company name + industry if scrape fails.
+- TAL accounts filtered from results using rapidfuzz at 85% threshold
+- Returns 5 results, cached in session state (no re-fetch on page interactions)
+- Similar Customers button in Content Generation section (4-column layout)
+- Results included in briefing email if fetched this session
+- OpenAI key in `.streamlit/secrets.toml` under `[openai]`
+- `openai==2.30.0` added to requirements.txt
+- Migration: `migrations/007_similar_customers.sql`
+
+### Remaining for Phase 6
+- Streamlit Cloud deployment (connect repo, add secrets, verify load)
+- Outreach tone rules applied to all Claude prompts

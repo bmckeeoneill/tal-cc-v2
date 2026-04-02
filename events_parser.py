@@ -10,11 +10,13 @@ Email structure expected:
   Each event line: DATE - EVENT NAME<URL> - Seismic Page<URL>
 """
 
+import json
 import re
 from datetime import date, datetime
 from typing import Optional
 
 import db
+from config import get_anthropic_key, MODEL
 
 # State abbreviation → full name mapping for location matching
 STATE_ABBR = {
@@ -48,21 +50,28 @@ REGION_STATES = {
 }
 
 
-def _infer_year(month: int, day: int) -> int:
-    today = date.today()
-    if month < today.month or (month == today.month and day < today.day):
-        return today.year + 1
-    return today.year
+def _infer_year(month: int, day: int, ref: Optional[date] = None) -> int:
+    """Infer year for a month/day relative to ref date (defaults to today).
+    If the resulting date is more than 60 days before ref, assume next year.
+    This prevents bumping events to +1 year just because the email arrived
+    a few days after the event month rolled over.
+    """
+    from datetime import timedelta
+    ref = ref or date.today()
+    candidate = date(ref.year, month, day)
+    if (ref - candidate).days > 60:
+        return ref.year + 1
+    return ref.year
 
 
-def _parse_date(date_str: str) -> Optional[date]:
+def _parse_date(date_str: str, ref: Optional[date] = None) -> Optional[date]:
     """Parse dates like '3/25', '03/25', '3/25/2025', '3 /4'."""
     date_str = re.sub(r"\s", "", date_str.strip())  # remove any spaces
     parts = date_str.split("/")
     try:
         if len(parts) == 2:
             month, day = int(parts[0]), int(parts[1])
-            year = _infer_year(month, day)
+            year = _infer_year(month, day, ref)
             return date(year, month, day)
         elif len(parts) == 3:
             month, day, year = int(parts[0]), int(parts[1]), int(parts[2])
@@ -87,7 +96,7 @@ def _classify_url(url: str) -> str:
     return "other"
 
 
-def parse_events_email(body: str, raw_email_id: Optional[str] = None) -> list[dict]:
+def parse_events_email(body: str, raw_email_id: Optional[str] = None, ref: Optional[date] = None) -> list[dict]:
     """
     Parse an MMTT-style events digest email body.
     Returns list of event dicts ready for insert_event().
@@ -138,7 +147,7 @@ def parse_events_email(body: str, raw_email_id: Optional[str] = None) -> list[di
             date_str = m.group(1)
             rest = m.group(2)
 
-            event_date = _parse_date(date_str)
+            event_date = _parse_date(date_str, ref)
             if not event_date:
                 continue
 
@@ -220,6 +229,56 @@ def _accounts_for_event(event: dict, all_accounts: list[dict]) -> list[tuple[str
     return matched
 
 
+def _parse_events_with_claude(body: str, raw_email_id: Optional[str] = None, ref: Optional[date] = None) -> list[dict]:
+    """
+    Fallback: use Claude to extract events from an unstructured email body.
+    Returns same list-of-dicts shape as parse_events_email().
+    """
+    import anthropic
+    ref_str = (ref or date.today()).isoformat()
+    prompt = (
+        f"The email below was received on {ref_str}. Extract all events from it.\n\n"
+        "Return a JSON array. Each object must have these fields:\n"
+        "  event_name (string)\n"
+        "  event_date (YYYY-MM-DD — use the email received date as reference; only push to next year if the date is more than 60 days before the received date)\n"
+        "  event_type (one of: webinar, in_person, evergreen, competitive)\n"
+        "  region (string or null — only for in_person events, e.g. 'Texas', 'Central')\n"
+        "  registration_url (string or null)\n"
+        "  seismic_url (string or null)\n\n"
+        "Return only the JSON array, no explanation.\n\n"
+        f"EMAIL:\n{body}"
+    )
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
+    resp = client.messages.create(
+        model=MODEL,
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = resp.content[0].text.strip()
+    # Strip markdown code fences if present
+    raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"  [events] Claude fallback returned unparseable JSON: {raw[:200]}")
+        return []
+
+    events = []
+    for item in items:
+        if not item.get("event_name") or not item.get("event_date"):
+            continue
+        events.append({
+            "event_name": item["event_name"],
+            "event_date": item["event_date"],
+            "event_type": item.get("event_type") or "webinar",
+            "region": item.get("region"),
+            "registration_url": item.get("registration_url"),
+            "seismic_url": item.get("seismic_url"),
+            "raw_email_id": raw_email_id,
+        })
+    return events
+
+
 def process_events_email(signal: dict) -> int:
     """
     Parse signal body, write events + account_events.
@@ -228,7 +287,19 @@ def process_events_email(signal: dict) -> int:
     body = signal.get("body_text") or ""
     raw_email_id = signal.get("id")
 
-    parsed = parse_events_email(body, raw_email_id)
+    # Use the email's received date as year-inference reference, not today
+    ref = None
+    received_at = signal.get("received_at")
+    if received_at:
+        try:
+            ref = date.fromisoformat(received_at[:10])
+        except ValueError:
+            pass
+
+    parsed = parse_events_email(body, raw_email_id, ref)
+    if not parsed:
+        print(f"  [events] Regex parser found nothing — trying Claude fallback")
+        parsed = _parse_events_with_claude(body, raw_email_id, ref)
     if not parsed:
         print(f"  [events] No events parsed from signal {raw_email_id}")
         return 0

@@ -289,7 +289,7 @@ def render():
     st.divider()
     st.markdown("**Content Generation**")
 
-    cg_cols = st.columns(3)
+    cg_cols = st.columns(4)
 
     with cg_cols[0]:
         if st.button("Generate Outreach", key=f"gen_outreach_{account_id}", use_container_width=True):
@@ -298,13 +298,54 @@ def render():
     with cg_cols[1]:
         if st.button("Generate Briefing", key=f"gen_briefing_{account_id}", use_container_width=True):
             st.session_state[f"show_briefing_{account_id}"] = True
-        st.checkbox("Attach one pager", key=f"briefing_attach_op_{account_id}")
 
     with cg_cols[2]:
         _op_ready = bool(st.session_state.get(f"onepager_html_{account_id}"))
         _op_label = "✅ One Pager Ready" if _op_ready else "Generate One Pager"
         if st.button(_op_label, key=f"gen_onepager_{account_id}", use_container_width=True):
             st.session_state[f"show_onepager_{account_id}"] = True
+
+    with cg_cols[3]:
+        if st.button("Similar Customers", key=f"sim_customers_{account_id}", use_container_width=True):
+            st.session_state[f"show_sim_customers_{account_id}"] = True
+
+    # ── Similar Customers ─────────────────────────────────────────────────────
+    sc_results_key = f"sim_customers_results_{account_id}"
+    sc_show_key = f"show_sim_customers_{account_id}"
+
+    if st.session_state.get(sc_show_key):
+        st.markdown("---")
+        st.markdown("**Similar Customers**")
+
+        # Only fetch if we don't already have results stored
+        if sc_results_key not in st.session_state:
+            with st.spinner("Finding similar customers..."):
+                try:
+                    st.session_state[sc_results_key] = db.get_similar_customers(account_id)
+                except Exception as e:
+                    st.error(f"Similar customers lookup failed: {e}")
+                    st.session_state[sc_results_key] = []
+
+        # Render from cache — never re-fetches
+        similar = st.session_state[sc_results_key]
+        if not similar:
+            st.caption("No similar customers found.")
+        else:
+            for c in similar:
+                is_ref = "active" in (c.get("reference_status") or "").lower()
+                name_line = f"**{c['company_name']}**"
+                if is_ref:
+                    name_line += " :green[● Reference]"
+                st.markdown(name_line)
+                meta = " · ".join(filter(None, [c.get("industry"), c.get("state")]))
+                if meta:
+                    st.caption(meta)
+                if c.get("notes"):
+                    st.caption((c["notes"] or "")[:120] + ("…" if len(c.get("notes", "")) > 120 else ""))
+                if c.get("website"):
+                    url = c["website"] if c["website"].startswith("http") else f"https://{c['website']}"
+                    st.markdown(f"[{c['website']}]({url})")
+                st.divider()
 
     # ── Generate Outreach ─────────────────────────────────────────────────────
     if st.session_state.get(f"show_outreach_{account_id}"):
@@ -463,6 +504,27 @@ def render():
             else:
                 events_block = "No events flagged for this account."
 
+            # ── Similar customers block ───────────────────────────────────
+            similar_list = st.session_state.get(f"sim_customers_results_{account_id}", [])
+            if similar_list:
+                sc_lines = []
+                for c in similar_list:
+                    line = c.get("company_name", "")
+                    if "active" in (c.get("reference_status") or "").lower():
+                        line += " [Reference Active]"
+                    if c.get("industry"):
+                        line += f" · {c['industry']}"
+                    if c.get("state"):
+                        line += f" · {c['state']}"
+                    if c.get("website"):
+                        line += f" · {c['website']}"
+                    if c.get("notes"):
+                        line += f"\n  {(c['notes'] or '')[:120]}"
+                    sc_lines.append(line)
+                similar_block = "\n\n".join(sc_lines)
+            else:
+                similar_block = None
+
             # ── Notes block ───────────────────────────────────────────────
             if notes_list:
                 notes_block = "\n\n".join(
@@ -482,6 +544,7 @@ How to use this:
 - SIGNALS is a log of buying activity we've picked up (most recent first)
 - OUTREACH DRAFT is a starting point for your first email — feel free to personalize
 - EVENTS are ones I've flagged as relevant, with invite drafts if I generated them
+- SIMILAR CUSTOMERS are existing NetSuite customers in the same space — good for name-dropping
 
 Reach out if you have questions. Good luck with this one.
 
@@ -516,7 +579,12 @@ OUTREACH DRAFT
 FLAGGED EVENTS ({len(events_list)} flagged)
 ==============================
 {events_block}
+{f"""
 
+==============================
+SIMILAR CUSTOMERS ({len(similar_list)})
+==============================
+{similar_block}""" if similar_block else ""}
 
 ---
 Generated by TAL Command Center on {today_str}
@@ -526,8 +594,6 @@ Generated by TAL Command Center on {today_str}
                 import json as _json
                 from email.mime.text import MIMEText
                 from email.mime.multipart import MIMEMultipart
-                from email.mime.base import MIMEBase
-                from email import encoders as _encoders
                 from google.oauth2.credentials import Credentials
                 from googleapiclient.discovery import build
 
@@ -535,7 +601,7 @@ Generated by TAL Command Center on {today_str}
                 creds = Credentials.from_authorized_user_info(_json.load(open(token_path)))
                 service = build("gmail", "v1", credentials=creds)
 
-                attach_op = st.session_state.get(f"briefing_attach_op_{account_id}", False)
+                attach_op = bool(st.session_state.get(f"onepager_html_{account_id}"))
                 if attach_op:
                     import one_pager as _op
                     op_html = st.session_state.get(f"onepager_html_{account_id}")
@@ -550,15 +616,13 @@ Generated by TAL Command Center on {today_str}
                             "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                         })
                     safe_name = (acct.get("company_name") or "account").replace(" ", "_").replace("/", "-")
-                    msg = MIMEMultipart()
-                    msg.attach(MIMEText(body))
-                    part = MIMEBase("text", "html")
-                    part.set_payload(op_html.encode("utf-8"))
-                    _encoders.encode_base64(part)
+                    msg = MIMEMultipart("mixed")
+                    msg.attach(MIMEText(body, "plain"))
+                    part = MIMEText(op_html, "html", "utf-8")
                     part.add_header("Content-Disposition", "attachment", filename=f"{safe_name}_one_pager.html")
                     msg.attach(part)
                 else:
-                    msg = MIMEText(body)
+                    msg = MIMEText(body, "plain")
 
                 msg["to"] = "brian.br.oneill@oracle.com"
                 msg["subject"] = f"TCC Briefing: {company} - {today_str}"

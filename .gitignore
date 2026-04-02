@@ -18,3 +18,8 @@ build/
 
 # Misc
 *.log
+
+# Data files
+customers.csv
+TAL/
+NS Exports/
