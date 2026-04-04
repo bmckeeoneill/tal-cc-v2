@@ -23,3 +23,9 @@ build/
 customers.csv
 TAL/
 NS Exports/
+*.csv
+*.xlsb
+*.xlsx
+
+# Claude memory
+.claude/

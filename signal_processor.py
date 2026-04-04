@@ -115,6 +115,12 @@ def detect_source(signal: dict) -> str:
     if CRM_SENDER in sender_addr:
         return "crm_notification"
 
+    # CRM notification forwarded by Brian: body contains the structured CRM field
+    if sender_addr in BRIAN_SENDERS:
+        body = (signal.get("body_text") or "")
+        if "Associated companies, contacts:" in body:
+            return "crm_notification"
+
     # Events digest: forwarded by Brian with subject exactly "events"
     if subject == "events":
         return "events_digest"
@@ -126,6 +132,10 @@ def detect_source(signal: dict) -> str:
     # SDR update: forwarded by Brian with subject exactly "sdr"
     if subject == "sdr":
         return "sdr"
+
+    # Contacts capture: forwarded by Brian with subject exactly "contacts"
+    if subject == "contacts":
+        return "contacts"
 
     # Check if any attachment is an image
     attachments = signal.get("attachments") or []
@@ -157,12 +167,25 @@ def extract_crm_signal(signal: dict) -> tuple[str | None, str | None, str, str]:
     body = signal.get("body_text") or ""
     subject = signal.get("subject") or ""
 
-    # Company + contact from "Associated companies, contacts:" line
+    # Company + contact from "Associated companies, contacts:" block
+    # Handles both inline format and multi-line bullet format:
+    #   Inline:  "Associated companies, contacts: Acme Corp, John Smith"
+    #   Bullet:  "Associated companies, contacts:\n\n  *   12345 Acme Corp, John Smith"
     company_name = None
     contact_name = None
-    assoc_match = re.search(r"Associated companies,\s*contacts:\s*(.+)", body, re.IGNORECASE)
+    assoc_match = re.search(
+        r"Associated companies,\s*contacts:\s*(.+?)(?:NOTICE:|$)",
+        body, re.IGNORECASE | re.DOTALL
+    )
     if assoc_match:
-        parts = assoc_match.group(1).strip().split(",", 1)
+        block = assoc_match.group(1).strip()
+        # Bullet format: * [optional_ns_id] Company, Contact
+        bullet_match = re.search(r"\*\s+(?:\d+\s+)?(.+)", block)
+        if bullet_match:
+            line = bullet_match.group(1).strip()
+        else:
+            line = block.splitlines()[0].strip()
+        parts = line.split(",", 1)
         company_name = parts[0].strip() or None
         contact_name = parts[1].strip() if len(parts) > 1 else None
 
@@ -504,6 +527,97 @@ def process_all_signals() -> dict:
                 print(f"  ✓ [sdr] {matched_count} SDR assignments updated")
                 continue
 
+            # ── Contacts capture ──────────────────────────────────────────
+            if source == "contacts":
+                image = _get_first_image(signal)
+                contacts_extracted = []
+                if image:
+                    image_b64, mime_type = image
+                    contacts_prompt = (
+                        "You are analyzing a screenshot or business card scan forwarded by a sales rep.\n"
+                        "Extract all visible contacts. For each person found, extract:\n"
+                        "- name (full name)\n"
+                        "- title (job title or role)\n"
+                        "- email\n"
+                        "- phone\n"
+                        "- linkedin_url\n"
+                        "- company_name\n\n"
+                        "Return a JSON array of contact objects. Use null for any field you cannot find.\n"
+                        'Example: [{"name": "Jane Doe", "title": "CFO", "email": "jane@acme.com", '
+                        '"phone": null, "linkedin_url": null, "company_name": "Acme Corp"}]'
+                    )
+                    response = client.messages.create(
+                        model=MODEL, max_tokens=512,
+                        messages=[{"role": "user", "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": image_b64}},
+                            {"type": "text", "text": contacts_prompt},
+                        ]}],
+                    )
+                    raw = response.content[0].text.strip()
+                    raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("```").strip()
+                    db.log_ai_call({"rep_id": REP_ID, "signal_id": signal["id"], "call_type": "contacts_vision",
+                                    "prompt_used": contacts_prompt, "model_version": MODEL,
+                                    "queried_at": datetime.now(timezone.utc).isoformat()})
+                    try:
+                        contacts_extracted = json.loads(raw)
+                        if not isinstance(contacts_extracted, list):
+                            contacts_extracted = []
+                    except Exception:
+                        contacts_extracted = []
+                else:
+                    # No image — try body text extraction
+                    body = (signal.get("body_text") or "")[:2000]
+                    contacts_text_prompt = (
+                        "Extract all visible contacts from this email body. For each person found, extract:\n"
+                        "- name, title, email, phone, linkedin_url, company_name\n\n"
+                        "Return a JSON array of contact objects. Use null for missing fields.\n\n"
+                        f"EMAIL BODY:\n{body}"
+                    )
+                    raw_text = _claude_text(client, contacts_text_prompt, signal["id"], "contacts_text_extraction")
+                    raw_text = re.sub(r"^```[a-z]*\n?", "", raw_text).rstrip("```").strip()
+                    try:
+                        contacts_extracted = json.loads(raw_text)
+                        if not isinstance(contacts_extracted, list):
+                            contacts_extracted = []
+                    except Exception:
+                        contacts_extracted = []
+
+                inserted = 0
+                for contact in contacts_extracted:
+                    company_name = contact.get("company_name")
+                    if company_name:
+                        account_id_match, best_match, confidence = match_account(company_name, account_names)
+                    else:
+                        account_id_match, best_match, confidence = None, None, 0.0
+
+                    if account_id_match and confidence >= 99.0:
+                        db.insert_contact({
+                            "account_id": account_id_match,
+                            "rep_id": REP_ID,
+                            "name": contact.get("name"),
+                            "title": contact.get("title"),
+                            "email": contact.get("email"),
+                            "phone": contact.get("phone"),
+                            "linkedin_url": contact.get("linkedin_url"),
+                            "raw_email_id": signal["id"],
+                        })
+                        inserted += 1
+                        print(f"  ✓ [contacts] {contact.get('name')} → {best_match} (100%)")
+                    else:
+                        route_to_review_queue(
+                            signal,
+                            company_name or contact.get("name"),
+                            best_match,
+                            confidence,
+                            "contacts email: needs review",
+                        )
+                        counts["review_queue"] += 1
+
+                db.mark_signal_processed(signal["id"])
+                counts["matched"] += inserted
+                print(f"  ✓ [contacts] {inserted} contacts inserted")
+                continue
+
             # ── Path A: CRM notification ──────────────────────────────────
             if source == "crm_notification":
                 company_name, contact_name, signal_type, signal_body = extract_crm_signal(signal)
@@ -571,6 +685,23 @@ def process_all_signals() -> dict:
                         f"Subject: {subject}\nBody: {(signal.get('body_text') or '')[:1000]}"
                     )
                     summary = _claude_text(client, summary_prompt, signal["id"], "signal_summary")
+
+            # ── NS record URL fallback ────────────────────────────────────
+            # If no company name yet, check body for custjob.nl?id= and match directly
+            if not company_name:
+                body_text = signal.get("body_text") or ""
+                ns_url_match = re.search(
+                    r"nlcorp\.app\.netsuite\.com/app/common/entity/custjob\.nl\?id=(\d+)",
+                    body_text, re.IGNORECASE
+                )
+                if ns_url_match:
+                    ns_id = ns_url_match.group(1)
+                    acct = db.get_account_by_ns_id(ns_id)
+                    if acct:
+                        company_name = acct["company_name"]
+                        if not summary:
+                            summary = f"CRM signal matched via NS record ID {ns_id}."
+                        print(f"  ✓ [{source}] NS ID {ns_id} → {company_name!r} (direct match)")
 
             # ── Match + route ─────────────────────────────────────────────
             if not company_name:

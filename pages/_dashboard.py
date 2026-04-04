@@ -3,7 +3,6 @@ import datetime
 import streamlit as st
 
 import db
-import mock_data
 from pages._shared import go
 
 _QUICK_LINKS = [
@@ -55,7 +54,8 @@ def render():
     # Row 2: Best Targets · TAL Changes · Claimed Awaiting Briefing
     col4, col5, col6 = st.columns(3)
     with col4:
-        if st.button(f"🎯 Best Targets\n\n{len(mock_data.MOCK_TARGETS)}\n\nhigh-priority",
+        _starred_count = db.get_starred_count()
+        if st.button(f"⭐ Top Targets\n\n{_starred_count}\n\nstarred accounts",
                      use_container_width=True, type="primary", key="tile_targets"):
             go("targets")
     with col5:
@@ -85,3 +85,11 @@ def render():
         _ps_url = st.secrets.get("external_tools", {}).get("pipeline_scout_url", "")
         st.link_button("🔭 Pipeline Scout\n\n↗\n\nopen app",
                        _ps_url, use_container_width=True, type="primary")
+
+    # Row 4: Contacts
+    col10, col11, col12 = st.columns(3)
+    with col10:
+        _contacts_count = db.get_accounts_with_contacts_count()
+        if st.button(f"👤 Contacts Added\n\n{_contacts_count}\n\npending confirmation",
+                     use_container_width=True, type="primary", key="tile_contacts"):
+            go("contacts")

@@ -5,7 +5,7 @@ import streamlit as st
 
 st.set_page_config(
     page_title="TAL Command Center",
-    page_icon="🎯",
+    page_icon="💻",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -20,6 +20,7 @@ from pages._events import render as render_events
 from pages._misc import render_changes, render_targets
 from pages._unmatched import render as render_unmatched
 from pages._leads import render_leads, render_claimed
+from pages._contacts import render as render_contacts
 from pages._account_detail import render as render_account
 
 # ── DB Init ───────────────────────────────────────────────────────────────────
@@ -235,6 +236,16 @@ def _get_chat_context() -> str:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
+# Show response above the input bar when chat history exists
+if st.session_state.chat_history:
+    last = st.session_state.chat_history[-1]
+    if last["role"] == "assistant":
+        st.info(last["content"])
+    with st.expander("Full conversation", expanded=False):
+        for msg in st.session_state.chat_history:
+            role_label = "**You:**" if msg["role"] == "user" else "**Claude:**"
+            st.markdown(f"{role_label} {msg['content']}")
+
 with st.form(key="chat_form", clear_on_submit=True):
     chat_cols = st.columns([8, 1, 1])
     with chat_cols[0]:
@@ -276,15 +287,6 @@ if send and user_input.strip():
         st.error(f"Claude error: {e}")
     st.rerun()
 
-if st.session_state.chat_history:
-    last = st.session_state.chat_history[-1]
-    if last["role"] == "assistant":
-        st.info(last["content"])
-    with st.expander("Full conversation", expanded=False):
-        for msg in st.session_state.chat_history:
-            role_label = "**You:**" if msg["role"] == "user" else "**Claude:**"
-            st.markdown(f"{role_label} {msg['content']}")
-
 st.markdown("---")
 
 # ── Router ────────────────────────────────────────────────────────────────────
@@ -306,6 +308,8 @@ elif page == "leads":
     render_leads()
 elif page == "claimed":
     render_claimed()
+elif page == "contacts":
+    render_contacts()
 elif page == "account":
     render_account()
 else:

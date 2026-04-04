@@ -482,3 +482,51 @@ Files use underscore prefix (`_`) to prevent Streamlit's `pages/` auto-discovery
 ### Remaining for Phase 6
 - Streamlit Cloud deployment (connect repo, add secrets, verify load)
 - Outreach tone rules applied to all Claude prompts
+
+---
+
+## Session Notes (2026-04-01 continued + 2026-04-03)
+
+### Completed this session
+
+**Content Library** — 23 SharePoint docs added to `content_library.json`. Claude selects up to 3 relevant docs per account based on name, industry, tech stack, and signal summaries. Results cached per account per session in `resources_{account_id}`. NetSuite Resources section on account detail page (hidden if nothing matched). Resources block appended to briefing when present. `content_utils.py` created, `get_content_library()` added to `db.py`.
+
+**Unmatched queue improvements** — now surfaces subject, from_email, signal_type, source, received_at for each item. Body preview expanded to 1000 chars. Makes triage significantly faster.
+
+**Contacts feature** — full pipeline:
+- Forward email with subject `contacts` → Claude Vision extracts all contacts from screenshot (name, title, email, phone, linkedin_url, company_name). Falls back to body text extraction if no image.
+- Each contact fuzzy-matched to TAL account at 80% threshold. Unmatched contacts go to review queue.
+- `contacts` table: id, account_id, rep_id, name, title, email, phone, linkedin_url, raw_email_id, confirmed (bool), cell_confirmed (bool), created_at
+- **Contacts Added tile** on dashboard — shows count of unconfirmed contacts pending review
+- **Contacts Added page** — review queue showing only unconfirmed contacts. Actions: Confirm (right account → removes from queue, stays on account), Reassign + Confirm (move then confirm), ☆ Cell (star phone as confirmed cell), Delete
+- **Account detail contacts section** — shows all confirmed contacts for the account. Cell-confirmed phones display with ★
+- Contacts included in briefing email when present
+- Migration: `008_contacts.sql`
+
+**Lead Highlight** — new section on account detail page, below company info:
+- Generate button calls Claude using all signals to write a 2-3 sentence SDR pitch ("why work this account")
+- Editable text area with Save button
+- Saved to `lead_highlights` table (upsert on account_id)
+- Appears in briefing as "WHY WORK THIS ACCOUNT" immediately after greeting, before all sections
+- Migration: `009_feature_additions.sql` (also added confirmed/cell_confirmed to contacts, one_pager_url to accounts)
+
+**One pager → Supabase Storage** — on generate, HTML is uploaded to `signal-attachments` bucket under `one-pagers/{account_id}/`. Signed URL (10-year expiry) saved to `accounts.one_pager_url`. Briefing includes URL as plain link — no attachment. MIMEMultipart logic removed. Download button still available on account page.
+
+**Weekly Analysis expander hidden** — UI removed, logic preserved in code behind `if False:`.
+
+**Briefing now fully conditional** — only sections with data are included: ACCOUNT OVERVIEW and OUTREACH DRAFT always present; SIGNALS, FLAGGED EVENTS, CONTACTS, SIMILAR CUSTOMERS, NETSUITE RESOURCES, NOTES only appear when populated. Intro line lists exactly which sections are included.
+
+### Key files modified this session
+- `content_library.json` — 23 docs
+- `content_utils.py` — Claude content selection
+- `db.py` — get_content_library, insert_contact, get_contacts_for_account (confirmed only), confirm_contact, toggle_cell_confirmed, reassign_contact, delete_contact, get_unconfirmed_contacts, get_accounts_with_contacts_count, get_lead_highlight, save_lead_highlight, save_one_pager_url, upload_one_pager
+- `signal_processor.py` — contacts source detection + Claude Vision extraction
+- `pages/_account_detail.py` — Lead Highlight section, contacts display with cell star, one pager upload to storage, briefing conditional sections + lead highlight + one pager URL, weekly analysis hidden
+- `pages/_contacts.py` — Contacts Added review queue page
+- `pages/_unmatched.py` — richer signal context per item
+- `pages/_dashboard.py` — Contacts Added tile (Row 4)
+- `app.py` — contacts routing
+- `migrations/008_contacts.sql`, `migrations/009_feature_additions.sql` (run via psycopg2)
+
+### Still deferred
+- Streamlit Cloud deployment

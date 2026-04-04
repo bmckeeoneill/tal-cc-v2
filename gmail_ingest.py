@@ -28,7 +28,10 @@ from supabase import create_client
 # Config
 # ---------------------------------------------------------------------------
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 CREDENTIALS_FILE = "gmail_credentials.json"  # fallback for local interactive auth
 TOKEN_FILE = "gmail_token.json"              # fallback for local token cache
 POLL_INTERVAL_SECONDS = 300  # 5 minutes
@@ -98,7 +101,6 @@ def get_gmail_service():
             token_uri="https://oauth2.googleapis.com/token",
             client_id=client_id,
             client_secret=client_secret,
-            scopes=SCOPES,
         )
         creds.refresh(Request())
         return build("gmail", "v1", credentials=creds)
@@ -234,11 +236,21 @@ def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+_INLINE_LOGO_RE = re.compile(r'^outlook-[a-z0-9]+\.(png|jpg|jpeg|gif|webp)$', re.IGNORECASE)
+
+
+def _is_logo_image(filename: str) -> bool:
+    """Return True if this looks like an Outlook inline signature/logo image, not a real attachment."""
+    return bool(_INLINE_LOGO_RE.match(filename))
+
+
 def upload_attachments_to_storage(supabase, signal_id: str, attachments: list) -> str | None:
     """Upload image attachments to Supabase Storage. Returns file_url of first image, or None."""
     first_url = None
     for att in attachments:
         filename = (att.get("filename") or "attachment").replace(" ", "_")
+        if _is_logo_image(filename):
+            continue  # Skip Outlook inline signature/logo images
         ext = os.path.splitext(filename.lower())[1]
         if ext not in IMAGE_EXTENSIONS:
             continue
@@ -276,8 +288,9 @@ def insert_signal(supabase, row):
 
 def poll_once(service, supabase):
     """Fetch unread messages, insert into Supabase, mark as read."""
+    allowed_from = " OR ".join(f"from:{addr}" for addr in ALLOWED_SENDERS)
     result = service.users().messages().list(
-        userId="me", q="is:unread newer_than:7d", maxResults=50
+        userId="me", q=f"is:unread newer_than:7d ({allowed_from})", maxResults=50
     ).execute()
 
     messages = result.get("messages", [])
@@ -295,12 +308,6 @@ def poll_once(service, supabase):
             sender_raw = row["from_email"]
             sender_addr = sender_raw.split("<")[-1].strip(">").strip().lower()
             if sender_addr not in ALLOWED_SENDERS:
-                # Mark as read so it's skipped next poll, but don't ingest
-                service.users().messages().modify(
-                    userId="me",
-                    id=msg_id,
-                    body={"removeLabelIds": ["UNREAD"]}
-                ).execute()
                 print(f"  — Skipped (not from allowed sender): {sender_raw!r}")
                 continue
             signal_id = insert_signal(supabase, row)
@@ -313,12 +320,6 @@ def poll_once(service, supabase):
                     supabase.table("signals_raw").update({"file_url": file_url}).eq("id", signal_id).execute()
                     print(f"    ↑ Uploaded attachment → Storage")
 
-            # Mark as read
-            service.users().messages().modify(
-                userId="me",
-                id=msg_id,
-                body={"removeLabelIds": ["UNREAD"]}
-            ).execute()
             print(f"  ✓ Ingested: {row['subject']!r} from {row['from_email']!r}")
         except Exception as e:
             print(f"  ✗ Error processing message {msg_id}: {e}")

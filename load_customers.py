@@ -35,13 +35,15 @@ def _build_embed_text(row: dict) -> str:
     parts = []
     if row.get("company_name"):
         parts.append(row["company_name"])
+    if row.get("naics_description"):
+        parts.append(row["naics_description"])
     if row.get("industry"):
         parts.append(row["industry"])
+    if row.get("notes"):
+        parts.append(row["notes"])
     domain = _extract_domain(row.get("website", ""))
     if domain:
         parts.append(domain)
-    if row.get("notes"):
-        parts.append(row["notes"])
     return ". ".join(parts)
 
 

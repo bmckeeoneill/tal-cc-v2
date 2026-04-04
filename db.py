@@ -3,6 +3,7 @@ Supabase connection and query helpers for TAL Command Center.
 All queries go through this module — app.py never imports supabase directly.
 """
 
+import os
 import streamlit as st
 from supabase import create_client, Client
 
@@ -79,7 +80,9 @@ def get_accounts(
     if search:
         s = search.lower()
         rows = [r for r in rows if s in (r.get("company_name") or "").lower()]
-    return [_normalize(r) for r in rows]
+    normalized = [_normalize(r) for r in rows]
+    # Starred accounts always float to the top
+    return sorted(normalized, key=lambda r: (not r.get("starred"), 0))
 
 
 def get_account(account_id: str) -> dict | None:
@@ -151,7 +154,7 @@ def insert_review_queue(row: dict) -> None:
 
 
 def get_recent_activity_count(rep_id: str = "brianoneill", days: int = 7) -> int:
-    """Count of signals_processed in the last N days. Powers Recent Activity tile."""
+    """Count of signals_processed in the last N days, excluding dismissed."""
     from datetime import date, timedelta
     since = (date.today() - timedelta(days=days)).isoformat()
     client = get_client()
@@ -159,6 +162,7 @@ def get_recent_activity_count(rep_id: str = "brianoneill", days: int = 7) -> int
         client.table("signals_processed")
         .select("id", count="exact")
         .eq("rep_id", rep_id)
+        .eq("dismissed", False)
         .gte("signal_date", since)
         .execute()
     )
@@ -263,6 +267,13 @@ def _build_account_block(a: dict, signals: list, notes: list, flagged_events: li
     loc = ", ".join(p for p in [a.get("city"), a.get("state"), a.get("zip")] if p)
     lines.append(f"Industry: {a.get('industry') or '—'} | Location: {loc or '—'} | Website: {a.get('domain') or '—'}")
 
+    if a.get("naics_code"):
+        lines.append(f"NAICS: {a['naics_code']} — {a.get('naics_description') or ''}")
+    if a.get("naics_notes"):
+        lines.append(f"What they do: {a['naics_notes']}")
+    if a.get("naics_confidence"):
+        lines.append(f"NAICS confidence: {a['naics_confidence']}")
+
     ts = a.get("tech_stack") or []
     lines.append(f"Tech stack: {', '.join(ts) if ts else '—'}")
 
@@ -358,7 +369,8 @@ def get_account_chat_context(account_id: str) -> str:
     # Full data for the focused account
     acct_resp = client.table("accounts").select(
         "id, company_name, industry, city, state, zip, street, domain, tech_stack, "
-        "sdr_name, sdr_assigned_at, briefing_sent_at, signal_count"
+        "sdr_name, sdr_assigned_at, briefing_sent_at, signal_count, "
+        "naics_code, naics_description, naics_confidence, naics_notes"
     ).eq("id", account_id).single().execute()
     acct = acct_resp.data or {}
 
@@ -403,7 +415,8 @@ def get_tal_summary_context(rep_id: str = "brianoneill") -> str:
         client.table("accounts")
         .select(
             "id, company_name, industry, city, state, zip, domain, tech_stack, "
-            "sdr_name, sdr_assigned_at, briefing_sent_at, signal_count"
+            "sdr_name, sdr_assigned_at, briefing_sent_at, signal_count, "
+            "naics_code, naics_description, naics_confidence, naics_notes"
         )
         .eq("rep_id", rep_id)
         .eq("active", True)
@@ -681,7 +694,13 @@ def clear_sdr(account_id: str) -> None:
     client.table("accounts").update({
         "sdr_name": None,
         "sdr_assigned_at": None,
+        "briefing_sent_at": None,
     }).eq("id", account_id).execute()
+
+
+def dismiss_signal(signal_id: str) -> None:
+    """Mark a signal as dismissed — removed from activity feed but kept on account detail."""
+    get_client().table("signals_processed").update({"dismissed": True}).eq("id", signal_id).execute()
 
 
 def get_claimed_awaiting_briefing(rep_id: str = "brianoneill") -> list[dict]:
@@ -752,6 +771,129 @@ def get_inactive_accounts(rep_id: str = "brianoneill") -> list[dict]:
 def mark_assigned(account_id: str) -> None:
     """Mark an account as acknowledged after TAL refresh."""
     get_client().table("accounts").update({"assigned": True}).eq("id", account_id).execute()
+
+
+# ---------------------------------------------------------------------------
+# Contacts
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Lead Highlights
+# ---------------------------------------------------------------------------
+
+def get_lead_highlight(account_id: str) -> str | None:
+    client = get_client()
+    resp = client.table("lead_highlights").select("highlight_text").eq("account_id", account_id).limit(1).execute()
+    rows = resp.data or []
+    return rows[0].get("highlight_text") if rows else None
+
+
+def save_lead_highlight(account_id: str, text: str, rep_id: str = "brianoneill") -> None:
+    from datetime import datetime, timezone
+    client = get_client()
+    client.table("lead_highlights").upsert({
+        "account_id": account_id,
+        "rep_id": rep_id,
+        "highlight_text": text.strip(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }, on_conflict="account_id").execute()
+
+
+def save_one_pager_url(account_id: str, url: str) -> None:
+    get_client().table("accounts").update({"one_pager_url": url}).eq("id", account_id).execute()
+
+
+def upload_one_pager(account_id: str, html: str, company_name: str) -> str:
+    """Upload one pager HTML to Supabase Storage. Returns signed URL."""
+    import re as _re
+    # Strip anything that isn't alphanumeric, space, hyphen, or underscore
+    safe = _re.sub(r"[^\w\s-]", "", company_name or "account")
+    safe = _re.sub(r"[\s]+", "_", safe).strip("_") or "account"
+    path = f"one-pagers/{account_id}/{safe}_one_pager.html"
+    client = get_client()
+    client.storage.from_("signal-attachments").upload(
+        path=path,
+        file=html.encode("utf-8"),
+        file_options={"content-type": "text/html", "upsert": "true"},
+    )
+    signed = client.storage.from_("signal-attachments").create_signed_url(path, expires_in=315360000)
+    url = signed["signedURL"]
+    save_one_pager_url(account_id, url)
+    return url
+
+
+def insert_contact(row: dict) -> str | None:
+    """Insert a contact row. Returns new id or None."""
+    client = get_client()
+    resp = client.table("contacts").insert(row).execute()
+    rows = resp.data or []
+    return str(rows[0]["id"]) if rows else None
+
+
+def get_contacts_for_account(account_id: str) -> list[dict]:
+    """Return all confirmed contacts for an account, ordered by name."""
+    client = get_client()
+    resp = (
+        client.table("contacts")
+        .select("id, name, title, email, phone, linkedin_url, cell_confirmed, created_at")
+        .eq("account_id", account_id)
+        .eq("confirmed", True)
+        .order("name")
+        .execute()
+    )
+    return resp.data or []
+
+
+def confirm_contact(contact_id: str) -> None:
+    """Mark a contact as confirmed — removes from review queue, keeps on account."""
+    get_client().table("contacts").update({"confirmed": True}).eq("id", contact_id).execute()
+
+
+def toggle_cell_confirmed(contact_id: str, value: bool) -> None:
+    get_client().table("contacts").update({"cell_confirmed": value}).eq("id", contact_id).execute()
+
+
+def reassign_contact(contact_id: str, new_account_id: str) -> None:
+    """Move a contact to a different account."""
+    get_client().table("contacts").update({"account_id": new_account_id}).eq("id", contact_id).execute()
+
+
+def delete_contact(contact_id: str) -> None:
+    get_client().table("contacts").delete().eq("id", contact_id).execute()
+
+
+def get_unconfirmed_contacts(rep_id: str = "brianoneill") -> list[dict]:
+    """Return unconfirmed contacts for the review queue, with account name."""
+    client = get_client()
+    resp = (
+        client.table("contacts")
+        .select("id, account_id, name, title, email, phone, linkedin_url, cell_confirmed, created_at, accounts(company_name)")
+        .eq("rep_id", rep_id)
+        .eq("confirmed", False)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    rows = []
+    for r in (resp.data or []):
+        acct = r.pop("accounts", None) or {}
+        r["company_name"] = acct.get("company_name") or "—"
+        rows.append(r)
+    return rows
+
+
+def get_accounts_with_contacts_count(rep_id: str = "brianoneill") -> int:
+    """Count of unconfirmed contacts pending review."""
+    client = get_client()
+    resp = client.table("contacts").select("id", count="exact").eq("rep_id", rep_id).eq("confirmed", False).execute()
+    return resp.count or 0
+
+
+def get_content_library() -> list[dict]:
+    """Load content_library.json from repo root. Fresh read each call."""
+    import json as _json
+    path = os.path.join(os.path.dirname(__file__), "content_library.json")
+    with open(path, encoding="utf-8") as f:
+        return _json.load(f)
 
 
 def get_tal_changes_count(rep_id: str = "brianoneill") -> int:
@@ -847,92 +989,257 @@ def _scrape_website_description(domain: str, company_name: str) -> str | None:
         return None
 
 
-def get_similar_customers(account_id: str, limit: int = 5) -> list[dict]:
-    """Return top similar NetSuite customers for a given account using vector cosine similarity."""
+def get_similar_customers_naics(account_id: str, limit: int = 10, excluded_ids: list | None = None) -> list[dict]:
+    """NAICS waterfall match: 6-digit → 4-digit → 2-digit, then Claude ranking."""
     import datetime
+    import random
+    import anthropic as _anthropic
+    import json as _json
+    import re as _re
+    from rapidfuzz import fuzz
+    from config import get_anthropic_key
 
     client = get_client()
+    excluded_set = set(str(i) for i in (excluded_ids or []))
 
-    # Pull account fields
-    acct_resp = client.table("accounts").select("company_name, industry, domain, tech_stack").eq("id", account_id).single().execute()
+    # Pull account NAICS + context
+    acct_resp = client.table("accounts").select(
+        "company_name, industry, naics_code, naics_description, naics_notes"
+    ).eq("id", account_id).single().execute()
     acct = acct_resp.data or {}
 
-    company_name = acct.get("company_name") or ""
-    industry = acct.get("industry") or ""
+    company_name  = acct.get("company_name") or ""
+    industry      = acct.get("industry") or ""
+    acct_naics    = (acct.get("naics_code") or "").strip()
 
-    # Try to get a rich description from the website
-    description = _scrape_website_description(acct.get("domain"), company_name)
-
-    if description:
-        query_text = description
-    else:
-        # Fallback: company name + industry + tech stack
-        parts = [company_name]
-        if industry:
-            parts.append(industry)
-        tech = acct.get("tech_stack")
-        if tech:
-            parts.append(", ".join(tech) if isinstance(tech, list) else str(tech))
-        query_text = ". ".join(p for p in parts if p).strip()
-
-    # Log scrape result
-    try:
-        log_ai_call({
-            "rep_id": "brianoneill",
-            "call_type": "similar_customers_scrape",
-            "prompt_used": query_text,
-            "model_version": MODEL if description else "fallback",
-            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
-    except Exception:
-        pass
-
-    embedding = embed_text(query_text)
-
-    # Log embedding call
-    try:
-        log_ai_call({
-            "rep_id": "brianoneill",
-            "call_type": "similar_customers_embedding",
-            "prompt_used": query_text,
-            "model_version": "text-embedding-3-small",
-            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
-    except Exception:
-        pass
-
-    # Log the call
-    try:
-        log_ai_call({
-            "rep_id": "brianoneill",
-            "call_type": "similar_customers_embedding",
-            "prompt_used": query_text,
-            "model_version": "text-embedding-3-small",
-            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
-    except Exception:
-        pass
-
-    # Fetch a larger candidate pool, then filter out TAL accounts
-    resp = client.rpc("match_customers", {
-        "query_embedding": embedding,
-        "match_count": limit * 10,
-    }).execute()
-    candidates = resp.data or []
-
-    # Load TAL account names to exclude
+    # TAL exclusion set
     tal_resp = client.table("accounts").select("company_name").eq("rep_id", "brianoneill").eq("active", True).execute()
     tal_names = {(r.get("company_name") or "").lower().strip() for r in (tal_resp.data or [])}
 
-    from rapidfuzz import fuzz
-    results = []
-    for c in candidates:
-        name = (c.get("company_name") or "").lower().strip()
-        # Exclude if it fuzzy-matches any TAL account at 85%+
-        if any(fuzz.ratio(name, t) >= 85 for t in tal_names):
-            continue
-        results.append(c)
-        if len(results) == limit:
-            break
+    COLS = "id, company_name, website, industry, sub_industry, naics_code, naics_description, what_they_do, business_model, reference_status, state"
 
+    def _fetch(filter_fn) -> list[dict]:
+        return filter_fn(client.table("customers").select(COLS)).limit(200).execute().data or []
+
+    def _clean(rows: list[dict], seen_ids: set) -> list[dict]:
+        out = []
+        for c in rows:
+            cid = str(c.get("id"))
+            if cid in seen_ids or cid in excluded_set:
+                continue
+            name = (c.get("company_name") or "").lower().strip()
+            if any(fuzz.ratio(name, t) >= 85 for t in tal_names):
+                continue
+            seen_ids.add(cid)
+            out.append(c)
+        return out
+
+    seen_ids: set = set()
+    pool: list[dict] = []
+
+    if acct_naics and len(acct_naics) >= 6:
+        # Tier 1: exact 6-digit
+        tier1 = _clean(_fetch(lambda q: q.eq("naics_code", acct_naics)), seen_ids)
+        pool += tier1
+
+        # Tier 2: 4-digit subsector
+        if len(acct_naics) >= 4:
+            tier2 = _clean(_fetch(lambda q: q.ilike("naics_code", f"{acct_naics[:4]}%")), seen_ids)
+            pool += tier2
+
+        # Tier 3: 2-digit sector
+        tier3 = _clean(_fetch(lambda q: q.ilike("naics_code", f"{acct_naics[:2]}%")), seen_ids)
+        pool += tier3
+
+    # Fallback: if pool is thin, supplement with industry keyword match or all customers
+    if len(pool) < 20:
+        naics_desc = acct.get("naics_description") or ""
+        naics_notes = acct.get("naics_notes") or ""
+        kw_text = f"{naics_desc} {naics_notes} {industry}".strip()
+        # Pull all customers and let Claude sort it out
+        all_rows = _clean(_fetch(lambda q: q), seen_ids)
+        pool += all_rows
+
+    if not pool:
+        return []
+
+    sample = random.sample(pool, min(50, len(pool)))
+
+    candidate_lines = []
+    for i, c in enumerate(sample):
+        desc = (c.get("what_they_do") or c.get("naics_description") or "")[:150]
+        ref = " [REF]" if "Ready" in (c.get("reference_status") or "") or "Active" in (c.get("reference_status") or "") else ""
+        candidate_lines.append(
+            f"{i}: {c['company_name']} | {c.get('naics_code','')} {c.get('naics_description','')} | {c.get('sub_industry','')} | {desc}{ref}"
+        )
+    candidate_text = "\n".join(candidate_lines)
+
+    prompt = (
+        f"You are helping a NetSuite sales rep find reference customers genuinely similar to a prospect.\n\n"
+        f"Prospect:\n"
+        f"- Company: {company_name}\n"
+        f"- Industry: {industry or 'Unknown'}\n"
+        f"- NAICS: {acct_naics} — {acct.get('naics_description', '')}\n"
+        f"- What they do: {acct.get('naics_notes', '')}\n\n"
+        f"Candidates (index: name | NAICS | sub-industry | description):\n{candidate_text}\n\n"
+        f"Return the {limit} most genuinely similar candidates — same or adjacent NAICS, similar business model.\n"
+        f"Be strict. Prefer [REF] customers when quality is equal.\n"
+        f"Return JSON array only. No explanation outside JSON.\n"
+        f'Format: [{{"index": 0, "reason": "one sentence"}}]'
+    )
+
+    try:
+        cl = _anthropic.Anthropic(api_key=get_anthropic_key())
+        resp = cl.messages.create(model=MODEL, max_tokens=1024,
+                                  messages=[{"role": "user", "content": prompt}])
+        raw = resp.content[0].text.strip()
+        json_match = _re.search(r'\[.*\]', raw, _re.DOTALL)
+        picks = _json.loads(json_match.group()) if json_match else []
+        log_ai_call({
+            "rep_id": "brianoneill",
+            "call_type": "similar_customers_naics",
+            "prompt_used": prompt,
+            "model_version": MODEL,
+            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        })
+    except Exception:
+        return [{**c, "reason": ""} for c in sample[:limit]]
+
+    results = []
+    for item in picks[:limit]:
+        idx = item.get("index")
+        if idx is not None and 0 <= idx < len(sample):
+            results.append({**sample[idx], "reason": item.get("reason", "")})
     return results
+
+
+def lock_customer(account_id: str, customer_id: str, rep_id: str = "brianoneill") -> None:
+    """Lock a customer as a reference match for this account."""
+    get_client().table("account_customers").upsert(
+        {"account_id": account_id, "customer_id": customer_id, "rep_id": rep_id, "status": "locked"},
+        on_conflict="account_id,customer_id",
+    ).execute()
+
+
+def dismiss_customer(account_id: str, customer_id: str, rep_id: str = "brianoneill") -> None:
+    """Dismiss a customer so it never shows for this account again."""
+    get_client().table("account_customers").upsert(
+        {"account_id": account_id, "customer_id": customer_id, "rep_id": rep_id, "status": "dismissed"},
+        on_conflict="account_id,customer_id",
+    ).execute()
+
+
+def get_locked_customers(account_id: str) -> list[dict]:
+    """Return all locked customers for an account with full customer details."""
+    client = get_client()
+    ac_resp = client.table("account_customers").select("customer_id") \
+        .eq("account_id", account_id).eq("status", "locked").execute()
+    ids = [r["customer_id"] for r in (ac_resp.data or [])]
+    if not ids:
+        return []
+    cust_resp = client.table("customers").select("id, company_name, website, industry, notes") \
+        .in_("id", ids).execute()
+    return cust_resp.data or []
+
+
+def get_dismissed_customer_ids(account_id: str) -> list[str]:
+    """Return list of dismissed customer UUIDs for an account."""
+    resp = get_client().table("account_customers").select("customer_id") \
+        .eq("account_id", account_id).eq("status", "dismissed").execute()
+    return [r["customer_id"] for r in (resp.data or [])]
+
+
+def search_customers(term: str, excluded_ids: list[str] | None = None, limit: int = 20) -> list[dict]:
+    """Full-table keyword search across customer name/industry/what_they_do/naics/business_model."""
+    if not term or not term.strip():
+        return []
+    t = term.strip().lower()
+    resp = get_client().table("customers").select(
+        "id, company_name, website, industry, sub_industry, what_they_do, naics_description, business_model, reference_status"
+    ).or_(
+        f"company_name.ilike.%{t}%,"
+        f"industry.ilike.%{t}%,"
+        f"what_they_do.ilike.%{t}%,"
+        f"naics_description.ilike.%{t}%,"
+        f"business_model.ilike.%{t}%"
+    ).limit(limit + len(excluded_ids or [])).execute()
+
+    rows = resp.data or []
+    if excluded_ids:
+        excl = set(str(x) for x in excluded_ids)
+        rows = [r for r in rows if str(r["id"]) not in excl]
+    return rows[:limit]
+
+
+def get_starred_count() -> int:
+    from config import REP_ID as _REP_ID
+    resp = get_client().table("accounts").select("id", count="exact") \
+        .eq("rep_id", _REP_ID).eq("active", True).eq("starred", True).execute()
+    return resp.count or 0
+
+
+def get_starred_accounts() -> list[dict]:
+    from config import REP_ID as _REP_ID
+    resp = get_client().table("accounts") \
+        .select("id, company_name, industry, state, revenue_range, domain, signal_count, last_signal_date") \
+        .eq("rep_id", _REP_ID).eq("active", True).eq("starred", True) \
+        .order("company_name").execute()
+    return resp.data or []
+
+
+def get_account_by_ns_id(ns_id: str) -> dict | None:
+    """Look up an account by its NetSuite custjob record ID embedded in nscorp_url."""
+    resp = get_client().table("accounts").select("id, company_name") \
+        .ilike("nscorp_url", f"%id={ns_id}%").eq("active", True).limit(1).execute()
+    return (resp.data or [None])[0]
+
+
+def toggle_starred(account_id: str, starred: bool) -> None:
+    """Set starred flag on an account."""
+    get_client().table("accounts").update({"starred": starred}).eq("id", account_id).execute()
+
+
+_OUTREACH_DEFAULT = """You are a NetSuite sales rep writing a short outreach email.
+
+Account: {account_name}
+Industry: {industry}
+NAICS: {naics_description}
+What they do: {naics_notes}
+Tech stack: {tech_stack}
+Recent signals: {signal_summaries}
+
+Write a short outreach email following this structure:
+1. Industry-specific hook: one sentence. Something specific and a little absurd that shows you understand their world. Written like something a rep heard in the field, not a case study.
+2. Signal or trigger reference: one sentence. Why you are reaching out right now.
+3. CTA: direct and cheeky. Examples: "Is this something you are thinking about?" or "Let me know if this is a project you might be looking at in the next year or two."
+
+Tone rules — no exceptions:
+- No em dashes
+- No hyphens used as dashes between phrases
+- No hyphenated words
+- No complex or formal vocabulary
+- Short sentences only
+- Sounds like a human wrote it quickly
+- A little cheeky is fine
+- No filler words
+- No bold font
+
+Length: two sentences plus a CTA. That is it."""
+
+
+def get_outreach_prompt(rep_id: str = "brianoneill") -> str:
+    """Return stored prompt template or the default."""
+    resp = get_client().table("outreach_config").select("prompt_template") \
+        .eq("rep_id", rep_id).limit(1).execute()
+    rows = resp.data or []
+    return rows[0]["prompt_template"] if rows else _OUTREACH_DEFAULT
+
+
+def save_outreach_prompt(rep_id: str, template: str) -> None:
+    """Upsert prompt template for a rep."""
+    import datetime
+    get_client().table("outreach_config").upsert(
+        {"rep_id": rep_id, "prompt_template": template,
+         "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()},
+        on_conflict="rep_id",
+    ).execute()

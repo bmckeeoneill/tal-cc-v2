@@ -2,8 +2,7 @@
 import streamlit as st
 
 import db
-import mock_data
-from pages._shared import back_btn, score_badge
+from pages._shared import go, back_btn, score_badge
 
 
 def render_changes():
@@ -56,33 +55,52 @@ def render_changes():
 
 def render_targets():
     back_btn("← Home", "home")
-    st.markdown('<div class="page-heading" style="border-left:4px solid #3D6B4F;padding-left:10px;">Best Targets</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-heading" style="border-left:4px solid #3D6B4F;padding-left:10px;">⭐ Top Targets</div>', unsafe_allow_html=True)
 
-    rows_html = ""
-    for item in mock_data.MOCK_TARGETS:
-        badge_cls = "score-high" if item["score"] >= 50 else "score-mid" if item["score"] >= 25 else "score-low"
-        rows_html += f"""
-        <tr>
-            <td style="color:#667085;text-align:center;">#{item['rank']}</td>
-            <td><strong>{item['company']}</strong></td>
-            <td>{item['state']}</td>
-            <td>{item['vertical']}</td>
-            <td><span class="score-badge {badge_cls}">{item['score']}</span></td>
-            <td style="color:#667085;">{item['reason']}</td>
-        </tr>"""
+    starred = db.get_starred_accounts()
 
-    st.markdown(f"""
-    <table class="ps-table">
-        <thead>
-            <tr>
-                <th style="text-align:center;">#</th>
-                <th>Company</th>
-                <th>State</th>
-                <th>Vertical</th>
-                <th>Score</th>
-                <th>Why</th>
-            </tr>
-        </thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    """, unsafe_allow_html=True)
+    if not starred:
+        st.caption("No starred accounts yet. Star accounts from the TAL list to add them here.")
+        return
+
+    st.caption(f"{len(starred)} starred accounts")
+
+    header_cols = st.columns([0.5, 3, 1, 1, 2, 2, 1])
+    for col, h in zip(header_cols, ["", "Company", "State", "Score", "Industry", "Last Signal", "Action"]):
+        col.markdown(f"**{h}**")
+    st.divider()
+
+    for acct in starred:
+        cols = st.columns([0.5, 3, 1, 1, 2, 2, 1])
+        acct_id = acct["id"]
+
+        with cols[0]:
+            if st.button("★", key=f"star_t_{acct_id}", help="Remove from Top Targets",
+                         use_container_width=False):
+                db.toggle_starred(acct_id, False)
+                st.rerun()
+
+        s = acct.get("score") or 0
+        signal_date = acct.get("last_signal_date") or ""
+        signal_date_str = str(signal_date)[:10] if signal_date else "—"
+
+        with cols[1]:
+            domain = acct.get("domain") or ""
+            name = acct.get("company_name") or "—"
+            if domain:
+                st.markdown(f"**[{name}](https://{domain})**")
+            else:
+                st.markdown(f"**{name}**")
+        with cols[2]:
+            st.write(acct.get("state") or "—")
+        with cols[3]:
+            st.markdown(score_badge(s), unsafe_allow_html=True)
+        with cols[4]:
+            st.write(acct.get("industry") or "—")
+        with cols[5]:
+            sc = acct.get("signal_count") or 0
+            st.caption(f"{sc} signals · {signal_date_str}")
+        with cols[6]:
+            if st.button("View", key=f"view_t_{acct_id}"):
+                st.session_state.selected_account = acct_id
+                go("account")

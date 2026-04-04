@@ -1,0 +1,140 @@
+[
+  {
+    "id": "aerospace_defense_product_page",
+    "title": "NetSuite Aerospace and Defense ERP Software",
+    "url": "https://oracle.sharepoint.com/teams/OracleTechContentCollab/Shared%20Documents/Member%20folders/Lorna/Aerospace%20Defense%20ERP%20Industry%20Product%20Page%20March%202026%20NetSuite%20-%20Copy.docx",
+    "summary": "Industry: Aerospace & Defense. Explains how NetSuite addresses highly regulated, program-driven aerospace and defense operations — focusing on project and program accounting for multi-year/milestone contracts, parts traceability (lot/serial), shop-floor manufacturing execution and configuration/document control for CAD/BOMs. Named capabilities and compliance called out include project-based accounting, support for ITAR/DFARS/AS9100D, manufacturing execution features, quality/compliance tracking, and NetSuite analytics and reporting for program health and audit readiness."
+  },
+  {
+    "id": "aerospace_defense_commercial_blueprint",
+    "title": "Aerospace & Defense Commercial Industry Capability Blueprint",
+    "url": "https://oracle.sharepoint.com/sites/naa-resource-hub/Shared%20Documents/Industries/Manufacturing/Aerospace%20&%20Defense/Aerospace%20&%20Defense%20Commercial%20Industry%20Capability%20Blueprint.pptx",
+    "summary": "Industry: Aerospace & Defense (commercial). A sales-facing capability blueprint mapping business capabilities (project/program management, supplier collaboration, risk & compliance, product lifecycle) to Oracle/NetSuite solutions; it calls out program controls, audit-readiness, supplier ramp-up, and engineering change-cycle improvements. The deck includes business capability maps, recommended Oracle Cloud/NetSuite modules and estimated benefit ranges (e.g., engineering change cycle reductions and supplier audit savings) to use in customer conversations."
+  },
+  {
+    "id": "electric_power_renewable_blueprint",
+    "title": "Utilities - Electric Power & Renewable Energy Industry Capability Blueprint",
+    "url": "https://oracle.sharepoint.com/sites/naa-resource-hub/Shared%20Documents/Industries/Service/Utilities/Utilities%20-%20Electric%20Power%20&%20Renewable%20Energy%20Industry%20Capability%20Blueprint.pptx",
+    "summary": "Industry: Electric Power & Renewable Energy. Covers grid and utility-specific challenges — outage management, meter/AMI data management, market settlements, distributed energy (DER) management and revenue/monetization for renewables. The blueprint maps capability areas such as maintenance & asset management, SCADA and grid integration, meter management, regulated accounting (FERC), and advanced analytics to Oracle Cloud and NetSuite capabilities for utility/renewables GTM."
+  },
+  {
+    "id": "renewable_energy_nsaw_usecase",
+    "title": "Renewable Energy NSAW and ERP Project Reporting Use Case",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Shared%20Documents/Industry%20Data%20Lake/Construction%20&%20Energy/Construction&Energy_Renewable%20Energy_NSAW&ERP_LastTell&UseCaseProjectReporting.docx",
+    "summary": "Industry: Renewable energy / construction. Customer-facing NSAW use case that demonstrates how NetSuite + NetSuite Analytics Warehouse (NSAW) solves fragmented reporting for renewable investment portfolios — centralizing investment records, enabling seasonality-aware analytics, SmartView PowerPoint integration for automated board reporting, and natural-language MCP/AI queries. Highlights NSAW features (AI assistant, SmartView, MCP) and the business problems of manual Excel-based board reporting, rolling budgets, and asset-level KPIs."
+  },
+  {
+    "id": "life_science_playbook",
+    "title": "Life Science Industry Playbook",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Shared%20Documents/NOAM%20Programs/Industry/Life%20Sciences/1.%20Overview%20Assets/Life%20Science%20Industry%20Playbook_APR%2026%202024.pptx",
+    "summary": "Industry: Life Sciences (pharma, biotech, medical devices). Playbook details regulatory and manufacturing requirements (FDA/CFR 21 Part 11, GMP, validation), batch/lot/serial traceability, eQMS/QMS, electronic batch records, and partner integrations for MES and quality systems. Calls out specific pain points (validation, lot traceability, post-market surveillance) and NetSuite product-level fits (OneWorld, Inventory Management, Work Orders & Assemblies, NS Planning & Budgeting) plus recommended partner solutions for electronic batch records and QMS."
+  },
+  {
+    "id": "industrial_products_landscape",
+    "title": "Industrial Products Industry Landscape",
+    "url": "https://oracle.sharepoint.com/sites/naa-resource-hub/Shared%20Documents/Industries/Manufacturing/Industrial%20Manufacturing/Industrial%20Products%20Industry%20Landscape.pdf",
+    "summary": "Industry: Industrial Products / discrete manufacturing. Comprehensive industry landscape that maps market dynamics, technology and sustainability trends to Oracle/NetSuite solutions; details operational pain points (supply-chain volatility, operational excellence, sustainability goals) and capability blueprints for ERP, planning, SCM, maintenance, quality and analytics. Intended for sellers to articulate Oracle/NetSuite differentiators; includes analyst citations, industry KPIs and messaging for manufacturing customers."
+  },
+  {
+    "id": "industrial_products_capability_blueprint",
+    "title": "Industrial Products Industry Capability Blueprint",
+    "url": "https://oracle.sharepoint.com/sites/naa-resource-hub/Shared%20Documents/Industries/Manufacturing/Industrial%20Manufacturing/Industrial%20Products%20Industry%20Capability%20Blueprint.pptx",
+    "summary": "Industry: Industrial Products (industrial manufacturing). Sales capability blueprint that maps ERP/SCM/HCM/CX and analytics capabilities to common industrial problems — warehouse and inventory operations, maintenance & MRO, planning & MRP, quality management, and service logistics. Includes reference architectures, analyst citations (Gartner), and explicit capability lists (warehouse management, order orchestration, maintenance, planning and analytics) to support deal-level solutioning."
+  },
+  {
+    "id": "hightech_consumer_enterprise_electronics_blueprint",
+    "title": "High Tech Consumer & Enterprise Electronics Industry Capability Blueprint",
+    "url": "https://oracle.sharepoint.com/sites/naa-resource-hub/Shared%20Documents/Industries/Manufacturing/High%20Tech/High%20Tech%20Consumer%20&%20Enterprise%20Electronics%20Industry%20Capability%20Blueprint.pptx",
+    "summary": "Industry: High-tech consumer and enterprise electronics. Addresses NPI (new product introduction), product lifecycle management, supply-chain resilience, and subscription/services monetization; calls out KPIs (time to volume ramp, order accuracy) and NetSuite fits such as WMS, CPQ, Order Orchestration, and analytics to speed NPI and protect margins. Gives concrete benefit ranges (e.g., % reductions in planning and ramp time) for use in sales ROI conversations."
+  },
+  {
+    "id": "hightech_oem_capability_blueprint",
+    "title": "High Tech OEM Industry Capability Blueprint",
+    "url": "https://oracle.sharepoint.com/sites/naa-resource-hub/Shared%20Documents/Industries/Manufacturing/High%20Tech/High%20Tech%20OEM%20Industry%20Capability%20Blueprint%20.pptx",
+    "summary": "Industry: High-Tech OEM. Blueprint focused on accelerating product introductions, as-a-service enablement, M&A integration, and supply-chain resilience: enumerates capabilities such as MES integration, inverted BOM support, SCADA/IoT data ingestion, maintenance/installed-base management, and planning. Includes target metrics (reduced time to prototype, faster integration of acquisitions) and clear capability mappings for NetSuite and Oracle Cloud in an OEM GTM."
+  },
+  {
+    "id": "telecom_industry_capability_blueprint",
+    "title": "Telecom Industry Capability Blueprint",
+    "url": "https://oracle.sharepoint.com/sites/naa-resource-hub/Shared%20Documents/Industries/Service/Telecommunications/Telecom%20Industry%20Capability%20Blueprint.pptx",
+    "summary": "Industry: Telecommunications / Enterprise Communications. Sales blueprint that targets telco priorities — faster time-to-market for new services, BSS/OSS modernization, billing and mediation, 5G/edge analytics and customer order orchestration. Documents concrete capabilities (product catalog, usage mediation, billing events, 5G analytics) and quantifies expected improvements (e.g., reductions in time-to-market and churn)."
+  },
+  {
+    "id": "manufacturing_industry_playbook",
+    "title": "Manufacturing Industry Playbook",
+    "url": "https://oracle.sharepoint.com/sites/industrydirectors/Shared%20Documents/Manufacturing%20&%20WD/Manufacturing%20industry%20playbook%20MASTER.pptx",
+    "summary": "Industry: Manufacturing (global playbook). Sales playbook that lists common manufacturing pain points (disparate systems, manual reporting, production scheduling, BOM complexity) and explains how NetSuite modules (Work Orders & Routings, MRP/WMS/Quality Management/NSPB) and SDN partners map to those problems. Provides qualification guidance (good/cautious fit matrices), recommended partner/SDN interventions for MES, QMS, POS and details for demo and demo-alignment in the sales motion."
+  },
+  {
+    "id": "retail_industry_playbook",
+    "title": "Retail Industry Playbook",
+    "url": "https://oracle.sharepoint.com/sites/industrydirectors/Shared%20Documents/Retail%20&%20Hospitality/Retail%20industry%20playbook%20MASTER.pptx",
+    "summary": "Industry: Retail & ecommerce (product-based companies). Sales playbook that addresses omnichannel order orchestration, pre-season merchandise planning, inventory/returns management, POS/in-store integration and high-volume ecommerce scenarios; provides qualification guidance by sub-vertical (AFA, home, specialty), recommended NetSuite modules (SuiteCommerce, Advanced Order Management, NetSuite WMS, NSPB), and SDN partner patterns for POS, loyalty and demand planning. Prescriptive for sellers — lists demo talking points, common complexities, and when to involve SDN partners or NSPB for merchandise planning."
+  },
+  {
+    "id": "nspb_playbook",
+    "title": "Industry Playbook - NetSuite Planning & Budgeting (NSPB)",
+    "url": "https://oracle.sharepoint.com/sites/industrydirectors/Shared%20Documents/EPM%20and%20Analytics/NSPB/Industry%20playbook%20-%20NSPB.pptx",
+    "summary": "Product/industry: NetSuite Planning & Budgeting (NSPB). Playbook explains FP&A gaps in ERPs and positions NSPB's Financials module (PnL/BS/Cash planning), SmartView Excel integration, driver-based modelling, scenario/what-if analysis, and management/board reporting. Enumerates OOTB capabilities, typical use cases (monthly budgeting, multi-currency, workforce/capex planning), SKU/cube mapping and stairs-to-value guidance for sales and solutioning."
+  },
+  {
+    "id": "nsaw_selling_by_use_case",
+    "title": "NSAW - Selling NetSuite Analytics Warehouse by Use Case",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Product/NSAW_Selling%20NSAW%20by%20Use%20Case.pptx",
+    "summary": "Product: NetSuite Analytics Warehouse (NSAW). GTM deck showing NSAW use-case patterns across industries — board reporting, operational dashboards, seasonality-aware analytics, and embedding AI/SmartView — with guidance for scoping demos and positioning NSAW alongside NetSuite ERP. Explicitly sales-oriented, maps NSAW scenarios to customer problems and value metrics."
+  },
+  {
+    "id": "nsaw_demo_script_services_ai_2024",
+    "title": "NSAW Demo Script - Services with AI (June 2024)",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Product/NSAW%20Demo%20Script%20-%20Services%20wAI%20v1%20June%202024.docx",
+    "summary": "Product demo script: updated NSAW demo script focused on services use cases and AI capabilities — emphasizes MCP natural language, AI-assisted commentary, SmartView integration and scenario walkthroughs for services and project reporting. Designed for sellers to demonstrate NSAW's AI value for services and investment reporting."
+  },
+  {
+    "id": "shiphawk_wms_battlecard",
+    "title": "ShipHawk WMS Battlecard for NetSuite",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Data%20Lake/ShipHawk%20WMS%20Battlecard_For_NetSuite.pdf",
+    "summary": "Use case/partner battlecard for ecommerce & fulfillment (product-based retailers/wholesale). Describes ShipHawk's NetSuite integration, qualifying questions and outcomes for high-volume ecommerce — highlighting features like Smart Packing, parcel+LTL rating, automated label/manifest creation, configurable business-rule automation, and NetSuite order writing to reduce warehouse labor and shipping cost. Quantifies expected customer benefits (faster throughput, 10-50% shipping cost reductions) to support deal economics."
+  },
+  {
+    "id": "shipwell_tms_battlecard",
+    "title": "Shipwell TMS - NetSuite Battlecard",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Shared%20Documents/Industry%20Data%20Lake/Transportation/T&L%20SDN%20Partner%20Resources/ShipwellTMS-NetSuite-Battlecard%20%281%29.pdf",
+    "summary": "Partner battlecard: Shipwell TMS integrated with NetSuite. Frames TMS qualifying questions (monthly shipping volume, carriers, B2B/B2C), describes business outcomes (lower freight cost, multi-warehouse shipping), and lists core capabilities (rate/parcelling, carrier selection, multi-warehouse support and NetSuite order writing) to help sales qualify and position a TMS + NetSuite solution."
+  },
+  {
+    "id": "wholesale_distribution_playbook",
+    "title": "Industry Playbook - Wholesale Distribution",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Shared%20Documents/NOAM%20Programs/Industry/.Emerging%20Roadshow/FY24%20EM%20SC%20Roadshow/Industries/eCPG/Wholesale/Industry%20Playbook%20-%20WD.pdf",
+    "summary": "Industry: Wholesale Distribution (product manufacturers & distributors). Describes the wholesale business model, core processes (plan/buy or make/move/market/sell/replenish), and key GTM scenarios (industrial, electronics, furniture, CPG, health & beauty), focusing on inventory and warehouse management, omnichannel eCommerce, vendor/transportation integration and distribution-specific KPIs. Enumerates NetSuite fits for procurement, inventory, advanced order management, warehouse operations and transport management with qualifying questions, personas and talk tracks for deal qualification."
+  },
+  {
+    "id": "manufacturing_playbook_aug2022",
+    "title": "Manufacturing Playbook (August 2022)",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Shared%20Documents/NOAM%20Programs/Industry/.Emerging%20Roadshow/FY25%20EM%20Roadshow/Industries/Products/Manufacturing/MFG%20-%20Playbook_AUG2022.pdf",
+    "summary": "Industry: Manufacturing (discrete and process manufacturers). Playbook covers manufacturing modes (MTS/MTO/ATO/engineer-to-order/batch/process) and common problems — costing accuracy, WIP and routing, production scheduling, shop-floor visibility and multi-channel inventory control. Calls out NetSuite strengths (real-time inventory, landed cost tracking, WIP/work-orders, MRP/WMS integration) and provides persona-driven talk tracks and qualification guidance for SDN partner involvement for MES, QMS and advanced scheduling."
+  },
+  {
+    "id": "food_manufacturing_playbook",
+    "title": "Food Manufacturing Industry Playbook",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Shared%20Documents/NOAM%20Programs/Industry/_Archive/Industry_Playbook%20-%20%20Food%20Manufacturing.pptx",
+    "summary": "Industry: Food & Beverage — Food Manufacturing (brand manufacturers, bakeries, dairy, beverage, meat/seafood). Playbook focuses on traceability, formulations/recipes, catch-weight and batch/process manufacturing, production scheduling, trade promotion and recall processes — calling out QA, certificates of analysis, lot expiration and regulatory controls. Lists NetSuite + partner patterns (Genesis for formulations, Parity for WMS/catch-weight, Demand Works for demand planning, TrueCommerce for EDI) and specific qualifying questions and KPIs for food manufacturers."
+  },
+  {
+    "id": "food_bev_gtm_breakout",
+    "title": "Food & Beverage GTM Breakout",
+    "url": "https://oracle.sharepoint.com/sites/netsuite-suitesuccess-published-assets/Shared%20Documents/Go-to-Market%20Advisors%20Groups/Industry%20Steering%20Committees/Food%20&%20Beverage/Decks/Food%20&%20Bev%20Breakout.pptx",
+    "summary": "Industry: Food & Beverage (go-to-market steering). Steering-committee deck defining industry GTM, success metrics and industry play content for sellers — outlines sub-industry breakdowns (packaged F&B, food manufacturing, beverage, hospitality), required sales-motion artifacts and the industry enablement timeline. Captures how to align content into sales motion steps, measurable success metrics (NB ARR, win rate, ASP) and the product/partner ecosystem for F&B GTM."
+  },
+  {
+    "id": "health_beauty_industry_terms",
+    "title": "Health & Beauty Industry Terms Reference",
+    "url": "https://oracle.sharepoint.com/sites/solutionconsultingcentral/Shared%20Documents/NOAM%20Programs/Industry/.Launchpad/Industry%20Key%20Terms/Health_Beauty_Industry_Terms.pdf",
+    "summary": "Industry: Health & Beauty / personal care and nutraceuticals (product brands). Glossary-style reference enumerating sector-specific concepts (product formulation, nutraceuticals, adaptogens, clinical studies), operational elements (appointment scheduling, POS, inventory forecasting, multi-location financials) and regulatory/quality concerns. Helps sellers align talk tracks to sector needs including eCommerce, inventory control, loyalty, regulatory compliance and product traceability."
+  },
+  {
+    "id": "suitesuccess_new_business_checklist",
+    "title": "SuiteSuccess New Business Sales Motion Checklist (NOAM)",
+    "url": "https://oracle.sharepoint.com/sites/netsuite-suitesuccess-published-assets/SuiteSuccess%20Assets/Methodology/SuiteSuccess%20New%20Business%20Sales%20Motion%20Checklist_NOAM.pptx",
+    "summary": "Sales enablement: SuiteSuccess new-business sales motion checklist for NetSuite sellers. Step-by-step internal playbook that defines the engagement phases (engage/align/persuade/close), recommended roles (ISA, CSA, SC), SuiteSuccess SKU selection, and demo/delivery alignment procedures — designed to standardize the NetSuite sales process and call out when to bring industry or SDN expertise."
+  }
+]

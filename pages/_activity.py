@@ -16,6 +16,7 @@ def render():
         .table("signals_processed")
         .select("id, signal_date, account_id, signal_type, headline, signal_source")
         .eq("rep_id", "brianoneill")
+        .eq("dismissed", False)
         .gte("signal_date", since)
         .order("signal_date", desc=True)
         .execute()
@@ -28,8 +29,8 @@ def render():
         st.info("No signals ingested in the last 7 days.")
         return
 
-    header = st.columns([1, 2, 1, 3, 1, 1])
-    for col, h in zip(header, ["Date", "Company", "Type", "Signal", "Source", ""]):
+    header = st.columns([1, 2, 1, 3, 1, 1, 1])
+    for col, h in zip(header, ["Date", "Company", "Type", "Signal", "Source", "", ""]):
         col.markdown(f"**{h}**")
     st.divider()
 
@@ -42,7 +43,7 @@ def render():
         signal_type = (s.get("signal_type") or "other").replace("_", " ").title()
         sig_id = s.get("id")
 
-        cols = st.columns([1, 2, 1, 3, 1, 1])
+        cols = st.columns([1, 2, 1, 3, 1, 1, 1])
         cols[0].caption((s.get("signal_date") or "")[:10])
         cols[1].markdown(f"**{company}**")
         cols[2].write(signal_type)
@@ -52,6 +53,9 @@ def render():
         if account_id and cols[5].button("View", key=f"act_view_{sig_id}"):
             st.session_state.selected_account = account_id
             go("account")
+        if cols[6].button("Dismiss", key=f"act_dismiss_{sig_id}"):
+            db.dismiss_signal(sig_id)
+            st.rerun()
 
         with st.expander("Reassign to different account", expanded=False):
             selected_name = st.selectbox(

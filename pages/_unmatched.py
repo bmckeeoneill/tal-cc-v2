@@ -43,13 +43,34 @@ def render():
             st.caption(f"Best guess: {best} ({conf:.0f}% confidence) · {reason} · {created}")
 
             if raw_id:
-                raw_resp = client.table("signals_raw").select("file_url, body_text").eq("id", raw_id).execute()
+                raw_resp = client.table("signals_raw").select("file_url, body_text, subject, from_email, received_at").eq("id", raw_id).execute()
                 raw = (raw_resp.data or [{}])[0]
+
+                # Surface key context fields
+                subject = raw.get("subject") or ""
+                from_email = raw.get("from_email") or ""
+                signal_type = raw.get("signal_type") or ""
+                source = raw.get("source") or ""
+                received = (raw.get("received_at") or "")[:10]
+                meta_parts = []
+                if subject:
+                    meta_parts.append(f"**Subject:** {subject}")
+                if from_email:
+                    meta_parts.append(f"**From:** {from_email}")
+                if signal_type:
+                    meta_parts.append(f"**Type:** {signal_type}")
+                if source:
+                    meta_parts.append(f"**Source:** {source}")
+                if received:
+                    meta_parts.append(f"**Received:** {received}")
+                if meta_parts:
+                    st.markdown("  \n".join(meta_parts))
+
+                if raw.get("body_text"):
+                    with st.expander("View email body"):
+                        st.text(raw.get("body_text", "")[:2000])
                 if raw.get("file_url"):
                     st.markdown(f"[📎 View attachment]({raw['file_url']})")
-                elif raw.get("body_text"):
-                    with st.expander("View email body"):
-                        st.text(raw.get("body_text", "")[:500])
 
             tag_col, dismiss_col = st.columns([4, 1])
             with tag_col:
