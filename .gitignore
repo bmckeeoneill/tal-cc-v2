@@ -26,6 +26,7 @@ NS Exports/
 *.csv
 *.xlsb
 *.xlsx
+*.sql.bak
 
 # Claude memory
 .claude/
