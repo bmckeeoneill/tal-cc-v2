@@ -804,8 +804,11 @@ def render():
                     from google.oauth2.credentials import Credentials
                     from googleapiclient.discovery import build
 
-                    token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "gmail_token.json")
-                    creds = Credentials.from_authorized_user_info(_json.load(open(token_path)))
+                    try:
+                        creds = Credentials.from_authorized_user_info(dict(st.secrets["gmail_token"]))
+                    except Exception:
+                        token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "gmail_token.json")
+                        creds = Credentials.from_authorized_user_info(_json.load(open(token_path)))
                     service = build("gmail", "v1", credentials=creds)
 
                     if op_html_attach:
