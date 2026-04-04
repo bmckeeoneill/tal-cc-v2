@@ -806,8 +806,10 @@ def render():
 
                     try:
                         creds = Credentials.from_authorized_user_info(dict(st.secrets["gmail_token"]))
-                    except Exception:
+                    except Exception as _cred_err:
                         token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "gmail_token.json")
+                        if not os.path.exists(token_path):
+                            raise RuntimeError(f"gmail_token secret failed ({_cred_err}) and no local token file found") from _cred_err
                         creds = Credentials.from_authorized_user_info(_json.load(open(token_path)))
                     service = build("gmail", "v1", credentials=creds)
 
