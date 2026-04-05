@@ -264,6 +264,7 @@ def render():
                                                   messages=[{"role": "user", "content": _parse_prompt}])
                         import json as _json2
                         _raw_resp = _pr.content[0].text.strip()
+                        st.caption(f"DEBUG raw: {repr(_raw_resp[:200])}")
                         # Strip markdown code fences if present
                         if _raw_resp.startswith("```"):
                             _raw_resp = _raw_resp.split("\n", 1)[-1]
