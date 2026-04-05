@@ -209,9 +209,8 @@ def check_password() -> bool:
     st.markdown('</div>', unsafe_allow_html=True)
     return False
 
-# Password gate disabled during development — re-enable before sharing
-# if not check_password():
-#     st.stop()
+if not check_password():
+    st.stop()
 
 # ── Claude Chat Bar ───────────────────────────────────────────────────────────
 import anthropic as _anthropic
