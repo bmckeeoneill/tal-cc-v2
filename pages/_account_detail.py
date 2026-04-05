@@ -164,7 +164,7 @@ def render():
 
         zi_id = acct.get("zi_id") or ""
         if zi_id:
-            zi_url = f"https://www.zoominfo.com/c/-/{zi_id}"
+            zi_url = f"https://app.zoominfo.com/#/apps/profile/company/{zi_id}"
             st.markdown(f'<div class="account-section-label">ZoomInfo</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="account-section-value"><a href="{zi_url}" target="_blank">View in ZoomInfo</a></div>', unsafe_allow_html=True)
             st.write("")
@@ -788,7 +788,7 @@ def render():
                     links.append(lnk(f"https://{domain}", "Website"))
                 _zi_id = acct.get("zi_id") or ""
                 if _zi_id:
-                    links.append(lnk(f"https://www.zoominfo.com/c/-/{_zi_id}", "ZoomInfo"))
+                    links.append(lnk(f"https://app.zoominfo.com/#/apps/profile/company/{_zi_id}", "ZoomInfo"))
                 if links:
                     acct_lines.append(" &nbsp;|&nbsp; ".join(links))
                 parts.append("<p style=\"margin:0 0 16px 0;\">" + "<br>".join(acct_lines) + "</p>")
