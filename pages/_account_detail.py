@@ -246,10 +246,11 @@ def render():
         st.caption("Paste anything — email signature, LinkedIn profile, name and number — and Claude will extract the contacts.")
         _paste_key = f"contact_paste_{account_id}"
         _parsed_key = f"contact_parsed_{account_id}"
-        _raw_text = st.text_area("Paste contact info", key=_paste_key,
-                                 label_visibility="collapsed",
-                                 placeholder="John Smith, VP Sales, john@acme.com, 303-555-1234...")
+        st.text_area("Paste contact info", key=_paste_key,
+                     label_visibility="collapsed",
+                     placeholder="John Smith, VP Sales, john@acme.com, 303-555-1234...")
         if st.button("Parse Contacts", key=f"parse_contacts_{account_id}"):
+            _raw_text = st.session_state.get(_paste_key, "")
             if _raw_text.strip():
                 with st.spinner("Parsing..."):
                     try:
@@ -274,6 +275,8 @@ def render():
                     except Exception as _e:
                         _raw_debug = locals().get("_raw_resp", "NO_RESPONSE")
                         st.error(f"Parse failed: {_e} | raw: {repr(str(_raw_debug)[:300])}")
+            else:
+                st.warning("Paste some contact info first.")
 
         _parsed_contacts = st.session_state.get(_parsed_key, [])
         if _parsed_contacts:
