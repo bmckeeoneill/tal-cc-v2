@@ -162,6 +162,13 @@ def render():
             st.markdown(f'<div class="account-section-value"><a href="{li_url}" target="_blank">View Company</a></div>', unsafe_allow_html=True)
             st.write("")
 
+        zi_id = acct.get("zi_id") or ""
+        if zi_id:
+            zi_url = f"https://www.zoominfo.com/c/-/{zi_id}"
+            st.markdown(f'<div class="account-section-label">ZoomInfo</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="account-section-value"><a href="{zi_url}" target="_blank">View in ZoomInfo</a></div>', unsafe_allow_html=True)
+            st.write("")
+
         ns_url = acct.get("nscorp_url") or ""
         if ns_url:
             st.markdown(f'<div class="account-section-label">NetSuite</div>', unsafe_allow_html=True)
@@ -227,19 +234,70 @@ def render():
 
     # ── Contacts ──────────────────────────────────────────────────────────────
     contacts = db.get_contacts_for_account(account_id)
-    if contacts:
-        with st.expander(f"Contacts ({len(contacts)})", expanded=False):
+    _contact_header = f"Contacts ({len(contacts)})" if contacts else "Contacts"
+    with st.expander(_contact_header, expanded=False):
+        if contacts:
             for c in contacts:
                 cell_star = " ★" if c.get("cell_confirmed") else ""
                 phone_str = (c.get("phone") or "") + cell_star if c.get("phone") else None
-                parts = [p for p in [c.get("name"), c.get("title"), c.get("email"), phone_str] if p]
+                _cparts = [p for p in [c.get("name"), c.get("title"), c.get("email"), phone_str] if p]
                 li = c.get("linkedin_url")
-                row_text = " · ".join(parts)
+                row_text = " · ".join(_cparts)
                 if li:
                     st.markdown(f"{row_text} — [LinkedIn]({li})")
                 else:
                     st.markdown(row_text or "—")
-        st.write("")
+            st.divider()
+
+        # ── Paste ingester ────────────────────────────────────────────────────
+        st.caption("Paste anything — email signature, LinkedIn profile, name and number — and Claude will extract the contacts.")
+        _paste_key = f"contact_paste_{account_id}"
+        _parsed_key = f"contact_parsed_{account_id}"
+        _raw_text = st.text_area("Paste contact info", key=_paste_key,
+                                 label_visibility="collapsed",
+                                 placeholder="John Smith, VP Sales, john@acme.com, 303-555-1234...")
+        if st.button("Parse Contacts", key=f"parse_contacts_{account_id}"):
+            if _raw_text.strip():
+                with st.spinner("Parsing..."):
+                    try:
+                        _cl = _anthropic.Anthropic(api_key=_get_anthropic_key())
+                        _parse_prompt = (
+                            "Extract all contacts from the text below. Return a JSON array of objects with these keys: "
+                            "name, title, email, phone, linkedin_url. Use null for missing fields. "
+                            "Return only valid JSON, no explanation.\n\n"
+                            f"Text:\n{_raw_text.strip()}"
+                        )
+                        _pr = _cl.messages.create(model=MODEL, max_tokens=512,
+                                                  messages=[{"role": "user", "content": _parse_prompt}])
+                        import json as _json2
+                        _parsed = _json2.loads(_pr.content[0].text.strip())
+                        st.session_state[_parsed_key] = _parsed if isinstance(_parsed, list) else [_parsed]
+                    except Exception as _e:
+                        st.error(f"Parse failed: {_e}")
+
+        _parsed_contacts = st.session_state.get(_parsed_key, [])
+        if _parsed_contacts:
+            st.markdown("**Parsed — confirm to save:**")
+            for _i, _pc in enumerate(_parsed_contacts):
+                _pc_parts = [p for p in [_pc.get("name"), _pc.get("title"), _pc.get("email"), _pc.get("phone")] if p]
+                st.write(" · ".join(_pc_parts) or "—")
+                if _pc.get("linkedin_url"):
+                    st.caption(_pc["linkedin_url"])
+            if st.button("Save All", key=f"save_parsed_{account_id}", type="primary"):
+                for _pc in _parsed_contacts:
+                    db.insert_contact({
+                        "account_id": account_id,
+                        "rep_id": REP_ID,
+                        "confirmed": True,
+                        "name": _pc.get("name"),
+                        "title": _pc.get("title"),
+                        "email": _pc.get("email"),
+                        "phone": _pc.get("phone"),
+                        "linkedin_url": _pc.get("linkedin_url"),
+                    })
+                del st.session_state[_parsed_key]
+                st.rerun()
+    st.write("")
 
     # ── Industry Brief ────────────────────────────────────────────────────────
     with st.expander("Why NetSuite — Industry Brief"):
@@ -648,6 +706,9 @@ def render():
                     except Exception:
                         op_html_attach = None
 
+                # ── Contacts for briefing ─────────────────────────────────────
+                briefing_contacts = db.get_contacts_for_account(account_id)
+
                 # ── Resources ─────────────────────────────────────────────────
                 briefing_resources = st.session_state.get(resources_key) or []
                 if not briefing_resources:
@@ -699,7 +760,24 @@ def render():
                 parts.append(sec("Why This Account"))
                 parts.append(f'<p style="margin:0 0 16px 0;">{lead_highlight}</p>')
 
-                # 3. ACCOUNT
+                # 3. WHO TO CALL (conditional)
+                if briefing_contacts:
+                    parts.append(HR)
+                    parts.append(sec("Who to Call"))
+                    wtc_lines = []
+                    for _bc in briefing_contacts:
+                        cell_star = " ★" if _bc.get("cell_confirmed") else ""
+                        _bc_parts = [p for p in [_bc.get("name"), _bc.get("title")] if p]
+                        _bc_contact = [p for p in [_bc.get("email"), (_bc.get("phone") or "") + cell_star if _bc.get("phone") else None] if p]
+                        line = " · ".join(_bc_parts)
+                        if _bc_contact:
+                            line += " &nbsp;— " + " · ".join(_bc_contact)
+                        if _bc.get("linkedin_url"):
+                            line += f" &nbsp;{lnk(_bc['linkedin_url'], 'LinkedIn')}"
+                        wtc_lines.append(line)
+                    parts.append("<p style=\"margin:0 0 16px 0;\">" + "<br>".join(wtc_lines) + "</p>")
+
+                # 4. ACCOUNT
                 parts.append(HR)
                 parts.append(sec("Account"))
                 acct_lines = [f'<strong>{company}</strong>']
@@ -708,6 +786,9 @@ def render():
                     links.append(lnk(ns_url, "NS Record"))
                 if domain:
                     links.append(lnk(f"https://{domain}", "Website"))
+                _zi_id = acct.get("zi_id") or ""
+                if _zi_id:
+                    links.append(lnk(f"https://www.zoominfo.com/c/-/{_zi_id}", "ZoomInfo"))
                 if links:
                     acct_lines.append(" &nbsp;|&nbsp; ".join(links))
                 parts.append("<p style=\"margin:0 0 16px 0;\">" + "<br>".join(acct_lines) + "</p>")
