@@ -93,11 +93,21 @@ TAL Command Center (TCC) is a Streamlit sales intelligence tool built for Brian 
 
 ---
 
+## Deployment
+
+- **Local:** `http://localhost:8501` — Mac runs cron jobs (Gmail ingest + pipeline)
+- **Streamlit Cloud:** `bmckeeoneill/tal-cc-v2` on GitHub — same Supabase DB, password protected (`APP_PASSWORD` in secrets)
+- Every `git push origin main` triggers automatic SLC redeploy (~30s)
+- Gmail token stored in `[gmail_token]` section of SLC secrets for briefing email send
+
+---
+
 ## What's Deferred (Phase 7)
 
 - Best Targets tile: still uses `mock_data.MOCK_TARGETS` — replace with real scoring
-- Weekly analysis and digest scoring (`run_weekly_analysis`, `run_weekly_digest`) — removed from pipeline, not useful until more signal volume
+- Manual similar customer entry by URL (planned, not built — needs name lookup strategy)
+- Customer favorites toggle on similar customers list
+- Weekly analysis and digest scoring — deferred until more signal volume
 - Outreach hook library per vertical (with Brian's field stories)
 - Event vertical matching (Claude-based — currently fans out to all accounts for webinars)
-- Pipeline Scout tile, Quick Links bar
-- Streamlit Cloud deployment (needs Gmail refresh token extracted to secrets)
+- ZoomInfo deep link — ID available in `accounts.zi_id` but authenticated URL format unresolved
