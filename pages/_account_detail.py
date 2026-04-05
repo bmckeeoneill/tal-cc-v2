@@ -162,13 +162,6 @@ def render():
             st.markdown(f'<div class="account-section-value"><a href="{li_url}" target="_blank">View Company</a></div>', unsafe_allow_html=True)
             st.write("")
 
-        zi_id = acct.get("zi_id") or ""
-        if zi_id:
-            zi_url = f"https://app.zoominfo.com/#/apps/profile/company/{zi_id}/overview"
-            st.markdown(f'<div class="account-section-label">ZoomInfo</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="account-section-value"><a href="{zi_url}" target="_blank">View in ZoomInfo</a></div>', unsafe_allow_html=True)
-            st.write("")
-
         ns_url = acct.get("nscorp_url") or ""
         if ns_url:
             st.markdown(f'<div class="account-section-label">NetSuite</div>', unsafe_allow_html=True)
@@ -270,7 +263,12 @@ def render():
                         _pr = _cl.messages.create(model=MODEL, max_tokens=512,
                                                   messages=[{"role": "user", "content": _parse_prompt}])
                         import json as _json2
-                        _parsed = _json2.loads(_pr.content[0].text.strip())
+                        _raw_resp = _pr.content[0].text.strip()
+                        # Strip markdown code fences if present
+                        if _raw_resp.startswith("```"):
+                            _raw_resp = _raw_resp.split("\n", 1)[-1]
+                            _raw_resp = _raw_resp.rsplit("```", 1)[0].strip()
+                        _parsed = _json2.loads(_raw_resp)
                         st.session_state[_parsed_key] = _parsed if isinstance(_parsed, list) else [_parsed]
                     except Exception as _e:
                         st.error(f"Parse failed: {_e}")
@@ -787,8 +785,6 @@ def render():
                 if domain:
                     links.append(lnk(f"https://{domain}", "Website"))
                 _zi_id = acct.get("zi_id") or ""
-                if _zi_id:
-                    links.append(lnk(f"https://app.zoominfo.com/#/apps/profile/company/{_zi_id}/overview", "ZoomInfo"))
                 if links:
                     acct_lines.append(" &nbsp;|&nbsp; ".join(links))
                 parts.append("<p style=\"margin:0 0 16px 0;\">" + "<br>".join(acct_lines) + "</p>")
