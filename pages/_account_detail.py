@@ -265,16 +265,16 @@ def render():
                                                   messages=[{"role": "user", "content": _parse_prompt}])
                         import json as _json2
                         _raw_resp = _pr.content[0].text.strip()
-                        st.caption(f"DEBUG raw: {repr(_raw_resp[:200])}")
                         # Strip markdown code fences if present
                         if _raw_resp.startswith("```"):
                             _raw_resp = _raw_resp.split("\n", 1)[-1]
                             _raw_resp = _raw_resp.rsplit("```", 1)[0].strip()
+                        elif _raw_resp.startswith("json\n"):
+                            _raw_resp = _raw_resp[5:].strip()
                         _parsed = _json2.loads(_raw_resp)
                         st.session_state[_parsed_key] = _parsed if isinstance(_parsed, list) else [_parsed]
                     except Exception as _e:
-                        _raw_debug = locals().get("_raw_resp", "NO_RESPONSE")
-                        st.error(f"Parse failed: {_e} | raw: {repr(str(_raw_debug)[:300])}")
+                        st.error(f"Parse failed: {_e}")
             else:
                 st.warning("Paste some contact info first.")
 
