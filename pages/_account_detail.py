@@ -272,7 +272,8 @@ def render():
                         _parsed = _json2.loads(_raw_resp)
                         st.session_state[_parsed_key] = _parsed if isinstance(_parsed, list) else [_parsed]
                     except Exception as _e:
-                        st.error(f"Parse failed: {_e}")
+                        _raw_debug = locals().get("_raw_resp", "NO_RESPONSE")
+                        st.error(f"Parse failed: {_e} | raw: {repr(str(_raw_debug)[:300])}")
 
         _parsed_contacts = st.session_state.get(_parsed_key, [])
         if _parsed_contacts:
