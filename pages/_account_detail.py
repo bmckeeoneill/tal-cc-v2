@@ -31,6 +31,7 @@ _OUTREACH_TONE = (
 
 
 def render():
+    st.markdown("<script>window.scrollTo(0, 0);</script>", unsafe_allow_html=True)
     back_btn("← Back to TAL", "tal")
 
     account_id = st.session_state.get("selected_account")
