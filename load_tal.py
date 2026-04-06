@@ -66,8 +66,19 @@ def load_csv() -> list[dict]:
                 "rep_id":       REP_ID,
             })
 
-    print(f"  {len(rows)} accounts parsed from CSV")
-    return rows
+    # Deduplicate by zi_id (keep first occurrence), then by name
+    seen_zi, seen_name, deduped = set(), set(), []
+    for r in rows:
+        key = r["zi_id"] or r["company_name"]
+        if key in seen_zi or r["company_name"] in seen_name:
+            print(f"  [SKIP duplicate] {r['company_name']}")
+            continue
+        seen_zi.add(key)
+        seen_name.add(r["company_name"])
+        deduped.append(r)
+
+    print(f"  {len(rows)} accounts parsed from CSV ({len(deduped)} after dedup)")
+    return deduped
 
 # ---------------------------------------------------------------------------
 # Upsert to Supabase
