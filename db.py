@@ -990,126 +990,89 @@ def _scrape_website_description(domain: str, company_name: str) -> str | None:
 
 
 def get_similar_customers_naics(account_id: str, limit: int = 10, excluded_ids: list | None = None) -> list[dict]:
-    """NAICS waterfall match: 6-digit → 4-digit → 2-digit, then Claude ranking."""
-    import datetime
-    import random
-    import anthropic as _anthropic
-    import json as _json
+    """pgvector embedding similarity search — replaces random sample + Claude ranking."""
+    import psycopg2
+    import psycopg2.extras
+    import openai as _openai
     import re as _re
     from rapidfuzz import fuzz
-    from config import get_anthropic_key
+    from config import REP_ID
 
-    client = get_client()
     excluded_set = set(str(i) for i in (excluded_ids or []))
 
-    # Pull account NAICS + context
+    # Pull account context
+    client = get_client()
     acct_resp = client.table("accounts").select(
         "company_name, industry, naics_code, naics_description, naics_notes"
     ).eq("id", account_id).single().execute()
     acct = acct_resp.data or {}
 
-    company_name  = acct.get("company_name") or ""
-    industry      = acct.get("industry") or ""
-    acct_naics    = (acct.get("naics_code") or "").strip()
+    company_name = acct.get("company_name") or ""
+    industry     = acct.get("industry") or ""
+    naics_code   = (acct.get("naics_code") or "").strip()
+    naics_desc   = acct.get("naics_description") or ""
+    naics_notes  = acct.get("naics_notes") or ""
 
-    # TAL exclusion set
-    tal_resp = client.table("accounts").select("company_name").eq("rep_id", "brianoneill").eq("active", True).execute()
+    # TAL exclusion set (don't return accounts already in territory)
+    tal_resp = client.table("accounts").select("company_name").eq("rep_id", REP_ID).eq("active", True).execute()
     tal_names = {(r.get("company_name") or "").lower().strip() for r in (tal_resp.data or [])}
 
-    COLS = "id, company_name, website, industry, sub_industry, naics_code, naics_description, what_they_do, business_model, reference_status, state"
-
-    def _fetch(filter_fn) -> list[dict]:
-        return filter_fn(client.table("customers").select(COLS)).limit(200).execute().data or []
-
-    def _clean(rows: list[dict], seen_ids: set) -> list[dict]:
-        out = []
-        for c in rows:
-            cid = str(c.get("id"))
-            if cid in seen_ids or cid in excluded_set:
-                continue
-            name = (c.get("company_name") or "").lower().strip()
-            if any(fuzz.ratio(name, t) >= 85 for t in tal_names):
-                continue
-            seen_ids.add(cid)
-            out.append(c)
-        return out
-
-    seen_ids: set = set()
-    pool: list[dict] = []
-
-    if acct_naics and len(acct_naics) >= 6:
-        # Tier 1: exact 6-digit
-        tier1 = _clean(_fetch(lambda q: q.eq("naics_code", acct_naics)), seen_ids)
-        pool += tier1
-
-        # Tier 2: 4-digit subsector
-        if len(acct_naics) >= 4:
-            tier2 = _clean(_fetch(lambda q: q.ilike("naics_code", f"{acct_naics[:4]}%")), seen_ids)
-            pool += tier2
-
-        # Tier 3: 2-digit sector
-        tier3 = _clean(_fetch(lambda q: q.ilike("naics_code", f"{acct_naics[:2]}%")), seen_ids)
-        pool += tier3
-
-    # Fallback: if pool is thin, supplement with industry keyword match or all customers
-    if len(pool) < 20:
-        naics_desc = acct.get("naics_description") or ""
-        naics_notes = acct.get("naics_notes") or ""
-        kw_text = f"{naics_desc} {naics_notes} {industry}".strip()
-        # Pull all customers and let Claude sort it out
-        all_rows = _clean(_fetch(lambda q: q), seen_ids)
-        pool += all_rows
-
-    if not pool:
+    # Generate embedding for this account
+    secrets_path = os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml")
+    oa_key = None
+    try:
+        import streamlit as _st
+        oa_key = _st.secrets.get("openai", {}).get("api_key")
+    except Exception:
+        pass
+    if not oa_key and os.path.exists(secrets_path):
+        content = open(secrets_path).read()
+        m = _re.search(r'\[openai\].*?api_key\s*=\s*"([^"]+)"', content, _re.DOTALL)
+        if m:
+            oa_key = m.group(1)
+    if not oa_key:
         return []
 
-    sample = random.sample(pool, min(50, len(pool)))
+    embed_text = f"{company_name} | {naics_code} {naics_desc} | {industry} | {naics_notes}"
+    oa = _openai.OpenAI(api_key=oa_key)
+    emb_resp = oa.embeddings.create(model="text-embedding-3-small", input=[embed_text])
+    emb = emb_resp.data[0].embedding
+    emb_str = "[" + ",".join(str(x) for x in emb) + "]"
 
-    candidate_lines = []
-    for i, c in enumerate(sample):
-        desc = (c.get("what_they_do") or c.get("naics_description") or "")[:150]
-        ref = " [REF]" if "Ready" in (c.get("reference_status") or "") or "Active" in (c.get("reference_status") or "") else ""
-        candidate_lines.append(
-            f"{i}: {c['company_name']} | {c.get('naics_code','')} {c.get('naics_description','')} | {c.get('sub_industry','')} | {desc}{ref}"
-        )
-    candidate_text = "\n".join(candidate_lines)
+    # pgvector similarity search — fetch limit*4 candidates to allow filtering
+    fetch_n = max(limit * 4, 40)
+    secrets_content = open(secrets_path).read() if os.path.exists(secrets_path) else ""
+    db_m = _re.search(r'DATABASE_URL\s*=\s*"([^"]+)"', secrets_content)
+    if not db_m:
+        return []
 
-    prompt = (
-        f"You are helping a NetSuite sales rep find reference customers genuinely similar to a prospect.\n\n"
-        f"Prospect:\n"
-        f"- Company: {company_name}\n"
-        f"- Industry: {industry or 'Unknown'}\n"
-        f"- NAICS: {acct_naics} — {acct.get('naics_description', '')}\n"
-        f"- What they do: {acct.get('naics_notes', '')}\n\n"
-        f"Candidates (index: name | NAICS | sub-industry | description):\n{candidate_text}\n\n"
-        f"Return the {limit} most genuinely similar candidates — same or adjacent NAICS, similar business model.\n"
-        f"Be strict. Prefer [REF] customers when quality is equal.\n"
-        f"Return JSON array only. No explanation outside JSON.\n"
-        f'Format: [{{"index": 0, "reason": "one sentence"}}]'
-    )
-
-    try:
-        cl = _anthropic.Anthropic(api_key=get_anthropic_key())
-        resp = cl.messages.create(model=MODEL, max_tokens=1024,
-                                  messages=[{"role": "user", "content": prompt}])
-        raw = resp.content[0].text.strip()
-        json_match = _re.search(r'\[.*\]', raw, _re.DOTALL)
-        picks = _json.loads(json_match.group()) if json_match else []
-        log_ai_call({
-            "rep_id": "brianoneill",
-            "call_type": "similar_customers_naics",
-            "prompt_used": prompt,
-            "model_version": MODEL,
-            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
-    except Exception:
-        return [{**c, "reason": ""} for c in sample[:limit]]
+    conn = psycopg2.connect(db_m.group(1))
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, company_name, website, industry, business_type, naics_code,
+               naics_description, reference_status, state, v_rank, highlights,
+               references_descriptors,
+               1 - (embedding <=> %s::vector) AS similarity
+        FROM customers
+        WHERE embedding IS NOT NULL
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s
+    """, (emb_str, emb_str, fetch_n))
+    rows = cur.fetchall()
+    conn.close()
 
     results = []
-    for item in picks[:limit]:
-        idx = item.get("index")
-        if idx is not None and 0 <= idx < len(sample):
-            results.append({**sample[idx], "reason": item.get("reason", "")})
+    for row in rows:
+        cid = str(row["id"])
+        if cid in excluded_set:
+            continue
+        name = (row["company_name"] or "").lower().strip()
+        if any(fuzz.ratio(name, t) >= 85 for t in tal_names):
+            continue
+        results.append(dict(row))
+        if len(results) >= limit:
+            break
+
     return results
 
 
