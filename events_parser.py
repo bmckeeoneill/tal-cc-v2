@@ -281,13 +281,13 @@ def _parse_events_with_claude(body: str, raw_email_id: Optional[str] = None, ref
 
 def process_events_email(signal: dict) -> int:
     """
-    Parse signal body, write events + account_events.
+    Parse signal body with Claude, write unconfirmed events.
+    User reviews and confirms in the Events page before they fan out to accounts.
     Returns count of events inserted.
     """
     body = signal.get("body_text") or ""
     raw_email_id = signal.get("id")
 
-    # Use the email's received date as year-inference reference, not today
     ref = None
     received_at = signal.get("received_at")
     if received_at:
@@ -296,34 +296,20 @@ def process_events_email(signal: dict) -> int:
         except ValueError:
             pass
 
-    parsed = parse_events_email(body, raw_email_id, ref)
-    if not parsed:
-        print(f"  [events] Regex parser found nothing — trying Claude fallback")
-        parsed = _parse_events_with_claude(body, raw_email_id, ref)
+    # Always use Claude — handles any format
+    parsed = _parse_events_with_claude(body, raw_email_id, ref)
     if not parsed:
         print(f"  [events] No events parsed from signal {raw_email_id}")
         return 0
 
-    # Load all accounts once
-    client = db.get_client()
-    all_accounts = client.table("accounts").select("id, company_name, state").eq("rep_id", "brianoneill").execute().data or []
-
     inserted = 0
     for event in parsed:
+        # Mark as unconfirmed — user reviews in Events page
+        event["confirmed"] = False
         event_id = db.insert_event(event)
         if not event_id:
-            continue  # duplicate, skipped
+            continue  # duplicate
         inserted += 1
 
-        matches = _accounts_for_event(event, all_accounts)
-        if matches:
-            rows = [{"account_id": aid, "event_id": event_id, "match_reason": reason}
-                    for aid, reason in matches]
-            # Insert in batches, ignore conflicts
-            try:
-                client.table("account_events").upsert(rows, on_conflict="account_id,event_id").execute()
-            except Exception as e:
-                print(f"  [events] account_events insert error: {e}")
-
-    print(f"  [events] {inserted} new events written, matched to accounts")
+    print(f"  [events] {inserted} new suggested events written (pending review)")
     return inserted

@@ -9,9 +9,36 @@ def render():
     back_btn("← Home", "home")
     st.markdown('<div class="page-heading" style="border-left:4px solid #4A4A5A;padding-left:10px;">Upcoming Events</div>', unsafe_allow_html=True)
 
+    # ── Suggested Events (unconfirmed) ────────────────────────────────────────
+    suggested = db.get_suggested_events()
+    if suggested:
+        st.markdown(f"**{len(suggested)} Suggested — review before adding**")
+        for e in suggested:
+            event_id = e["id"]
+            etype = (e.get("event_type") or "").replace("_", " ").title()
+            region = e.get("region") or ""
+            reg_link = f" · [Register]({e['registration_url']})" if e.get("registration_url") else ""
+            seismic_link = f" · [Seismic]({e['seismic_url']})" if e.get("seismic_url") else ""
+
+            cols = st.columns([4, 1, 1])
+            with cols[0]:
+                st.markdown(f"**{e.get('event_name','')}**")
+                meta = " · ".join(p for p in [e.get("event_date",""), etype, region] if p)
+                st.caption(f"{meta}{reg_link}{seismic_link}")
+            with cols[1]:
+                if st.button("✓ Add", key=f"confirm_ev_{event_id}", type="primary", use_container_width=True):
+                    db.confirm_event(event_id)
+                    st.rerun()
+            with cols[2]:
+                if st.button("Dismiss", key=f"dismiss_ev_{event_id}", use_container_width=True):
+                    db.dismiss_event(event_id)
+                    st.rerun()
+        st.divider()
+
+    # ── Confirmed upcoming events ─────────────────────────────────────────────
     events = db.get_all_upcoming_events()
     if not events:
-        st.info("No upcoming events. Forward an email with subject 'Events' to ingest the MMTT digest.")
+        st.info("No upcoming events. Forward any email with 'event' in the subject to ingest.")
         return
 
     st.caption(f"{len(events)} upcoming events")

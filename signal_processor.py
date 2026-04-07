@@ -121,8 +121,8 @@ def detect_source(signal: dict) -> str:
         if "Associated companies, contacts:" in body:
             return "crm_notification"
 
-    # Events digest: forwarded by Brian with subject exactly "events"
-    if subject == "events":
+    # Events: any email with "event" in subject
+    if "event" in subject:
         return "events_digest"
 
     # Lead capture: forwarded by Brian with subject exactly "lead"

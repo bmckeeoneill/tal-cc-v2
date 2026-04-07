@@ -467,7 +467,6 @@ def get_tal_summary_context(rep_id: str = "brianoneill") -> str:
 def insert_event(row: dict) -> str | None:
     """Insert an event, skipping duplicates on event_name + event_date. Returns new id or None."""
     client = get_client()
-    # Check for duplicate
     existing = (
         client.table("events")
         .select("id")
@@ -478,11 +477,52 @@ def insert_event(row: dict) -> str | None:
     )
     if existing.data:
         return None
-    # Populate legacy 'name' column to satisfy NOT NULL constraint
     insert_row = {**row, "name": row.get("event_name", "")}
     resp = client.table("events").insert(insert_row).execute()
     rows = resp.data or []
     return rows[0]["id"] if rows else None
+
+
+def get_suggested_events() -> list[dict]:
+    """Return unconfirmed events pending review, ordered by event_date."""
+    client = get_client()
+    resp = (
+        client.table("events")
+        .select("*")
+        .eq("confirmed", False)
+        .order("event_date")
+        .execute()
+    )
+    return resp.data or []
+
+
+def confirm_event(event_id: str) -> None:
+    """Confirm an event and fan it out to matching accounts."""
+    from config import REP_ID
+    client = get_client()
+    client.table("events").update({"confirmed": True}).eq("id", event_id).execute()
+
+    # Fan out to accounts
+    event_resp = client.table("events").select("*").eq("id", event_id).single().execute()
+    event = event_resp.data or {}
+    if not event:
+        return
+
+    import events_parser as _ep
+    all_accounts = client.table("accounts").select("id, company_name, state").eq("rep_id", REP_ID).eq("active", True).execute().data or []
+    matches = _ep._accounts_for_event(event, all_accounts)
+    if matches:
+        rows = [{"account_id": aid, "event_id": event_id, "match_reason": reason}
+                for aid, reason in matches]
+        try:
+            client.table("account_events").upsert(rows, on_conflict="account_id,event_id").execute()
+        except Exception as e:
+            print(f"[confirm_event] account_events error: {e}")
+
+
+def dismiss_event(event_id: str) -> None:
+    """Delete an unconfirmed event."""
+    get_client().table("events").delete().eq("id", event_id).eq("confirmed", False).execute()
 
 
 def get_events_for_account(account_id: str) -> list[dict]:
@@ -492,14 +532,14 @@ def get_events_for_account(account_id: str) -> list[dict]:
     client = get_client()
     resp = (
         client.table("account_events")
-        .select("match_reason, flagged_for_briefing, events(id, event_name, event_date, event_type, region, registration_url, seismic_url)")
+        .select("match_reason, flagged_for_briefing, events(id, event_name, event_date, event_type, region, registration_url, seismic_url, confirmed)")
         .eq("account_id", account_id)
         .execute()
     )
     rows = []
     for r in (resp.data or []):
         ev = r.get("events") or {}
-        if ev and ev.get("event_date", "9999") >= today:
+        if ev and ev.get("confirmed") and ev.get("event_date", "9999") >= today:
             ev["match_reason"] = r.get("match_reason")
             ev["flagged_for_briefing"] = r.get("flagged_for_briefing") or False
             rows.append(ev)
@@ -507,13 +547,14 @@ def get_events_for_account(account_id: str) -> list[dict]:
 
 
 def get_all_upcoming_events() -> list[dict]:
-    """Return all upcoming events ordered by event_date."""
+    """Return confirmed upcoming events ordered by event_date."""
     from datetime import date
     today = date.today().isoformat()
     client = get_client()
     resp = (
         client.table("events")
         .select("*")
+        .eq("confirmed", True)
         .gte("event_date", today)
         .order("event_date")
         .execute()
@@ -522,13 +563,14 @@ def get_all_upcoming_events() -> list[dict]:
 
 
 def get_upcoming_event_count() -> int:
-    """Count of events with event_date >= today."""
+    """Count of confirmed events with event_date >= today."""
     from datetime import date
     today = date.today().isoformat()
     client = get_client()
     resp = (
         client.table("events")
         .select("id", count="exact")
+        .eq("confirmed", True)
         .gte("event_date", today)
         .execute()
     )
