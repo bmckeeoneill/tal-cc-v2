@@ -112,6 +112,22 @@ def upsert_accounts(rows: list[dict]) -> int:
     return len(resp.data or [])
 
 
+def create_account(row: dict) -> str | None:
+    """
+    Insert a new account manually (e.g. added via forwarded screenshot).
+    Upserts on (company_name, rep_id) to avoid duplicates.
+    Returns the new account UUID or None.
+    """
+    client = get_client()
+    resp = (
+        client.table("accounts")
+        .upsert(row, on_conflict="company_name,rep_id")
+        .execute()
+    )
+    rows = resp.data or []
+    return rows[0].get("id") if rows else None
+
+
 # ---------------------------------------------------------------------------
 # Phase 4 — AI pipeline helpers
 # ---------------------------------------------------------------------------
@@ -144,13 +160,15 @@ def get_account_names(rep_id: str = "brianoneill") -> list[dict]:
 
 
 def insert_signals_processed(row: dict) -> None:
+    """Upsert on raw_id — safe to call multiple times for the same signal."""
     client = get_client()
-    client.table("signals_processed").insert(row).execute()
+    client.table("signals_processed").upsert(row, on_conflict="raw_id").execute()
 
 
 def insert_review_queue(row: dict) -> None:
+    """Upsert on raw_id — prevents duplicate review queue entries on pipeline retry."""
     client = get_client()
-    client.table("signal_review_queue").insert(row).execute()
+    client.table("signal_review_queue").upsert(row, on_conflict="raw_id").execute()
 
 
 def get_recent_activity_count(rep_id: str = "brianoneill", days: int = 7) -> int:

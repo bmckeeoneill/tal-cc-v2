@@ -137,6 +137,10 @@ def detect_source(signal: dict) -> str:
     if subject == "contacts":
         return "contacts"
 
+    # New account: subject contains "account" (e.g. "account", "new TAL account", "new account")
+    if "account" in subject:
+        return "account_add"
+
     # Check if any attachment is an image
     attachments = signal.get("attachments") or []
     if isinstance(attachments, str):
@@ -445,6 +449,79 @@ def process_all_signals() -> dict:
             signal_type = "other"
             summary = ""
             screenshot_headline = None
+
+            # ── Account add ───────────────────────────────────────────────
+            if source == "account_add":
+                image = _get_first_image(signal)
+                acct_info = {}
+
+                account_prompt = (
+                    "You are analyzing content forwarded by a sales rep to add a new prospect account.\n"
+                    "Extract the following fields:\n"
+                    "  company_name (required)\n"
+                    "  domain (website, e.g. 'acme.com')\n"
+                    "  industry\n"
+                    "  street\n"
+                    "  city\n"
+                    "  state (2-letter abbreviation)\n"
+                    "  zip\n"
+                    "  phone\n"
+                    "  linkedin_url\n\n"
+                    "Return only a JSON object with these keys. Use null for any field you cannot find."
+                )
+
+                if image:
+                    image_b64, mime_type = image
+                    response = client.messages.create(
+                        model=MODEL, max_tokens=512,
+                        messages=[{"role": "user", "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": image_b64}},
+                            {"type": "text", "text": account_prompt},
+                        ]}],
+                    )
+                else:
+                    body_excerpt = (signal.get("body_text") or "")[:2000]
+                    response = client.messages.create(
+                        model=MODEL, max_tokens=512,
+                        messages=[{"role": "user", "content": f"{account_prompt}\n\nCONTENT:\n{body_excerpt}"}],
+                    )
+
+                db.log_ai_call({"rep_id": REP_ID, "signal_id": signal["id"], "call_type": "account_add_extraction",
+                                "prompt_used": account_prompt, "model_version": MODEL,
+                                "queried_at": datetime.now(timezone.utc).isoformat()})
+                raw = response.content[0].text.strip()
+                raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("```").strip()
+                try:
+                    acct_info = json.loads(raw)
+                except Exception:
+                    acct_info = {}
+
+                company_name_extracted = (acct_info.get("company_name") or "").strip()
+                if not company_name_extracted:
+                    print(f"  ✗ [account_add] Could not extract company name from signal {signal['id']}")
+                    db.mark_signal_processed(signal["id"])
+                    counts["errors"] += 1
+                    continue
+
+                new_acct = {
+                    "company_name": company_name_extracted,
+                    "domain":       acct_info.get("domain"),
+                    "industry":     acct_info.get("industry"),
+                    "street":       acct_info.get("street"),
+                    "city":         acct_info.get("city"),
+                    "state":        acct_info.get("state"),
+                    "zip":          acct_info.get("zip"),
+                    "phone":        acct_info.get("phone"),
+                    "linkedin_url": acct_info.get("linkedin_url"),
+                    "rep_id":       REP_ID,
+                    "active":       True,
+                    "assigned":     True,
+                }
+                acct_id = db.create_account(new_acct)
+                db.mark_signal_processed(signal["id"])
+                counts["matched"] += 1
+                print(f"  ✓ [account_add] Created account: {company_name_extracted!r} (id={acct_id})")
+                continue
 
             # ── Events digest ─────────────────────────────────────────────
             if source == "events_digest":
