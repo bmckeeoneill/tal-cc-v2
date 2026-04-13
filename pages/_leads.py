@@ -18,15 +18,21 @@ def render_leads():
     for lead in leads:
         c1, c2 = st.columns([5, 1])
         with c1:
-            company = lead.get("company_name") or "Unknown company"
+            company = lead.get("company_name") or ""
             website = lead.get("website") or ""
             date_str = (lead.get("created_at") or "")[:10]
+            subject = lead.get("email_subject") or ""
+            header = company or subject or "Unknown"
             if website:
-                st.markdown(f"**{company}** — [{website}]({website}) · {date_str}")
+                st.markdown(f"**{header}** — [{website}]({website}) · {date_str}")
             else:
-                st.markdown(f"**{company}** · {date_str}")
+                st.markdown(f"**{header}** · {date_str}")
             if lead.get("file_url"):
                 st.markdown(f"[📎 View image]({lead['file_url']})")
+            body = (lead.get("body_text") or "").strip()
+            if body:
+                with st.expander("Email text"):
+                    st.text(body[:3000])
         with c2:
             if st.button("Dismiss", key=f"dismiss_lead_{lead['id']}"):
                 db.dismiss_lead(lead["id"])

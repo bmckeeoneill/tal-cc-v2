@@ -48,6 +48,38 @@ def render():
             industries=selected_industries or None,
         )
 
+    # ── Add Account ───────────────────────────────────────────────────────────
+    if st.session_state.get("show_add_account"):
+        with st.form("add_account_form"):
+            st.markdown("**Add Account**")
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                new_name = st.text_input("Company name *", placeholder="Acme Corp")
+            with fc2:
+                new_domain = st.text_input("Website / domain", placeholder="acme.com")
+            submitted = st.form_submit_button("Add", type="primary")
+            if submitted:
+                if not new_name.strip():
+                    st.error("Company name is required.")
+                else:
+                    acct_id = db.create_account({
+                        "company_name": new_name.strip(),
+                        "domain": new_domain.strip().replace("https://", "").replace("http://", "").rstrip("/") or None,
+                    })
+                    st.session_state["show_add_account"] = False
+                    if acct_id:
+                        st.session_state.selected_account = acct_id
+                        go("account")
+                    else:
+                        st.rerun()
+        if st.button("Cancel", key="cancel_add_account"):
+            st.session_state["show_add_account"] = False
+            st.rerun()
+    else:
+        if st.button("+ Add Account", key="open_add_account"):
+            st.session_state["show_add_account"] = True
+            st.rerun()
+
     # Starred filter toggle
     show_starred = st.session_state.get("show_starred_only", False)
     star_label = "Show All" if show_starred else "★ Show Starred Only"

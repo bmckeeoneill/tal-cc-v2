@@ -46,13 +46,21 @@ def render():
 
     _starred = acct.get("starred") or False
     _star_label = "★ Starred" if _starred else "☆ Star"
-    _star_cols = st.columns([6, 1])
+    _chop = acct.get("chop_block") or False
+    _chop_label = "🪓 On Chop Block" if _chop else "🪓 Chop Block"
+    _star_cols = st.columns([4, 1.2, 1.5])
     with _star_cols[0]:
         st.markdown(f"## {acct.get('company_name', 'Unknown')}")
     with _star_cols[1]:
         if st.button(_star_label, key=f"star_toggle_{account_id}",
                      type="primary" if _starred else "secondary"):
             db.toggle_starred(account_id, not _starred)
+            st.rerun()
+    with _star_cols[2]:
+        if st.button(_chop_label, key=f"chop_toggle_{account_id}",
+                     type="primary" if _chop else "secondary",
+                     help="Mark for removal from TAL"):
+            db.toggle_chop_block(account_id, not _chop)
             st.rerun()
 
     col1, col2 = st.columns(2)

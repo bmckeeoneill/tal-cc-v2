@@ -129,6 +129,10 @@ def detect_source(signal: dict) -> str:
     if subject == "lead":
         return "lead"
 
+    # Watch lead: subject "watch" or "watch lead"
+    if subject in ("watch", "watch lead"):
+        return "watch"
+
     # SDR update: forwarded by Brian with subject exactly "sdr"
     if subject == "sdr":
         return "sdr"
@@ -576,6 +580,80 @@ def process_all_signals() -> dict:
                 db.mark_signal_processed(signal["id"])
                 counts["matched"] += 1
                 print(f"  ✓ [lead] {company_name or 'unknown'} captured")
+                continue
+
+            # ── Watch lead ────────────────────────────────────────────────
+            if source == "watch":
+                body = signal.get("body_text") or ""
+
+                # Extract NS URL from body
+                ns_url = None
+                for token in body.split():
+                    if "nlcorp.app.netsuite.com" in token or "custjob.nl" in token:
+                        ns_url = token.strip("()<>\"'")
+                        break
+
+                # Extract notes: body text minus any URLs
+                import re as _re
+                notes_raw = _re.sub(r'https?://\S+', '', body).strip()
+                notes = notes_raw if notes_raw else None
+
+                # Try vision extraction for company name + LSAD date from screenshot
+                company_name = None
+                lsad_date = None
+                website = None
+                image = _get_first_image(signal)
+                if image:
+                    image_b64, mime_type = image
+                    watch_prompt = (
+                        "You are analyzing a screenshot of a NetSuite lead record.\n"
+                        "Extract the following fields exactly as they appear:\n"
+                        "1. company_name: the Company Name field value\n"
+                        "2. lsad_date: the LSAD Date field value (format M/D/YYYY or MM/DD/YYYY)\n"
+                        "3. website: the Web Address field value\n\n"
+                        "Return only a JSON object with keys: company_name, lsad_date, website\n"
+                        "Use null for any field you cannot find."
+                    )
+                    vision_resp = client.messages.create(
+                        model=MODEL, max_tokens=256,
+                        messages=[{"role": "user", "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": image_b64}},
+                            {"type": "text", "text": watch_prompt},
+                        ]}],
+                    )
+                    raw = vision_resp.content[0].text.strip()
+                    raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("```").strip()
+                    db.log_ai_call({"rep_id": REP_ID, "signal_id": signal["id"], "call_type": "watch_vision",
+                                    "prompt_used": watch_prompt, "model_version": MODEL,
+                                    "queried_at": datetime.now(timezone.utc).isoformat()})
+                    try:
+                        extracted = json.loads(raw)
+                        company_name = extracted.get("company_name")
+                        website = extracted.get("website")
+                        lsad_raw = extracted.get("lsad_date")
+                        if lsad_raw:
+                            from datetime import datetime as _dt
+                            for fmt in ("%m/%d/%Y", "%-m/%-d/%Y", "%m/%d/%y"):
+                                try:
+                                    lsad_date = _dt.strptime(lsad_raw, fmt).strftime("%Y-%m-%d")
+                                    break
+                                except ValueError:
+                                    continue
+                    except Exception:
+                        pass
+
+                db.insert_watch_lead({
+                    "company_name": company_name,
+                    "ns_url": ns_url,
+                    "lsad_date": lsad_date,
+                    "website": website,
+                    "notes": notes,
+                    "raw_email_id": signal["id"],
+                    "status": "active",
+                })
+                db.mark_signal_processed(signal["id"])
+                counts["matched"] += 1
+                print(f"  ✓ [watch] {company_name or 'unknown'} added to watch list")
                 continue
 
             # ── SDR update ────────────────────────────────────────────────

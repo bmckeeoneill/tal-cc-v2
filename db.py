@@ -711,6 +711,11 @@ def get_flagged_events(account_id: str) -> list[dict]:
 
 def insert_lead(row: dict) -> str | None:
     client = get_client()
+    raw_email_id = row.get("raw_email_id")
+    if raw_email_id:
+        existing = client.table("leads").select("id").eq("raw_email_id", raw_email_id).execute()
+        if existing.data:
+            return existing.data[0]["id"]
     resp = client.table("leads").insert(row).execute()
     rows = resp.data or []
     return rows[0]["id"] if rows else None
@@ -725,7 +730,16 @@ def get_active_leads() -> list[dict]:
         .order("created_at", desc=True)
         .execute()
     )
-    return resp.data or []
+    leads = resp.data or []
+    # Enrich with body_text from signals_raw so the UI can show email content
+    for lead in leads:
+        raw_id = lead.get("raw_email_id")
+        if raw_id and not lead.get("body_text"):
+            sig = client.table("signals_raw").select("body_text, subject").eq("id", raw_id).maybe_single().execute()
+            if sig.data:
+                lead["body_text"] = sig.data.get("body_text") or ""
+                lead["email_subject"] = sig.data.get("subject") or ""
+    return leads
 
 
 def dismiss_lead(lead_id: str) -> None:
@@ -737,6 +751,70 @@ def get_active_lead_count() -> int:
     client = get_client()
     resp = client.table("leads").select("id", count="exact").eq("status", "active").execute()
     return resp.count or 0
+
+
+# ---------------------------------------------------------------------------
+# Manual account creation
+# ---------------------------------------------------------------------------
+
+def create_account(row: dict) -> str | None:
+    """Insert a manually-added account. Returns the new account id."""
+    from config import REP_ID as _REP_ID
+    row.setdefault("rep_id", _REP_ID)
+    row.setdefault("active", True)
+    row.setdefault("assigned", True)
+    resp = get_client().table("accounts").insert(row).execute()
+    rows = resp.data or []
+    return rows[0]["id"] if rows else None
+
+
+# ---------------------------------------------------------------------------
+# Leads to Watch
+# ---------------------------------------------------------------------------
+
+def insert_watch_lead(row: dict) -> str | None:
+    from config import REP_ID as _REP_ID
+    raw_email_id = row.get("raw_email_id")
+    if raw_email_id:
+        existing = get_client().table("leads_to_watch").select("id").eq("raw_email_id", raw_email_id).execute()
+        if existing.data:
+            return existing.data[0]["id"]
+    row.setdefault("rep_id", _REP_ID)
+    resp = get_client().table("leads_to_watch").insert(row).execute()
+    rows = resp.data or []
+    return rows[0]["id"] if rows else None
+
+
+def get_watch_leads() -> list[dict]:
+    from config import REP_ID as _REP_ID
+    resp = (
+        get_client().table("leads_to_watch")
+        .select("*")
+        .eq("rep_id", _REP_ID)
+        .eq("status", "active")
+        .order("lsad_date")
+        .execute()
+    )
+    return resp.data or []
+
+
+def get_watch_lead_count() -> int:
+    from config import REP_ID as _REP_ID
+    resp = get_client().table("leads_to_watch").select("id", count="exact") \
+        .eq("rep_id", _REP_ID).eq("status", "active").execute()
+    return resp.count or 0
+
+
+def dismiss_watch_lead(lead_id: str) -> None:
+    get_client().table("leads_to_watch").update({"status": "dismissed"}).eq("id", lead_id).execute()
+
+
+def toggle_watch_starred(lead_id: str, starred: bool) -> None:
+    get_client().table("leads_to_watch").update({"starred": starred}).eq("id", lead_id).execute()
+
+
+def update_watch_notes(lead_id: str, notes: str) -> None:
+    get_client().table("leads_to_watch").update({"notes": notes, "updated_at": "now()"}).eq("id", lead_id).execute()
 
 
 def update_sdr(account_id: str, sdr_name: str) -> None:
@@ -1220,6 +1298,27 @@ def get_account_by_ns_id(ns_id: str) -> dict | None:
 def toggle_starred(account_id: str, starred: bool) -> None:
     """Set starred flag on an account."""
     get_client().table("accounts").update({"starred": starred}).eq("id", account_id).execute()
+
+
+def toggle_chop_block(account_id: str, chop_block: bool) -> None:
+    """Set chop_block flag on an account."""
+    get_client().table("accounts").update({"chop_block": chop_block}).eq("id", account_id).execute()
+
+
+def get_chop_block_count() -> int:
+    from config import REP_ID as _REP_ID
+    resp = get_client().table("accounts").select("id", count="exact") \
+        .eq("rep_id", _REP_ID).eq("active", True).eq("chop_block", True).execute()
+    return resp.count or 0
+
+
+def get_chop_block_accounts() -> list[dict]:
+    from config import REP_ID as _REP_ID
+    resp = get_client().table("accounts") \
+        .select("id, company_name, industry, state, domain, signal_count, last_signal_date") \
+        .eq("rep_id", _REP_ID).eq("active", True).eq("chop_block", True) \
+        .order("company_name").execute()
+    return resp.data or []
 
 
 _OUTREACH_DEFAULT = """You are a NetSuite sales rep writing a short outreach email.

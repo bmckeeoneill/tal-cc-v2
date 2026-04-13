@@ -17,9 +17,10 @@ from pages._dashboard import render as render_home
 from pages._tal import render as render_tal
 from pages._activity import render as render_activity
 from pages._events import render as render_events
-from pages._misc import render_changes, render_targets
+from pages._misc import render_changes, render_targets, render_chop_block
 from pages._unmatched import render as render_unmatched
 from pages._leads import render_leads, render_claimed
+from pages._watch import render as render_watch
 from pages._contacts import render as render_contacts
 from pages._account_detail import render as render_account
 
@@ -309,6 +310,10 @@ elif page == "claimed":
     render_claimed()
 elif page == "contacts":
     render_contacts()
+elif page == "chop_block":
+    render_chop_block()
+elif page == "watch":
+    render_watch()
 elif page == "account":
     render_account()
 else:

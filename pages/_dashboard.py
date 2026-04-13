@@ -86,10 +86,20 @@ def render():
         st.link_button("🔭 Pipeline Scout\n\n↗\n\nopen app",
                        _ps_url, use_container_width=True, type="primary")
 
-    # Row 4: Contacts
+    # Row 4: Contacts · Chop Block
     col10, col11, col12 = st.columns(3)
     with col10:
         _contacts_count = db.get_accounts_with_contacts_count()
         if st.button(f"👤 Contacts Added\n\n{_contacts_count}\n\npending confirmation",
                      use_container_width=True, type="primary", key="tile_contacts"):
             go("contacts")
+    with col11:
+        _chop_count = db.get_chop_block_count()
+        if st.button(f"🪓 Chop Block\n\n{_chop_count}\n\nmarked for removal",
+                     use_container_width=True, type="primary", key="tile_chop_block"):
+            go("chop_block")
+    with col12:
+        _watch_count = db.get_watch_lead_count()
+        if st.button(f"👁 Leads to Watch\n\n{_watch_count}\n\non watch list",
+                     use_container_width=True, type="primary", key="tile_watch"):
+            go("watch")

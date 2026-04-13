@@ -38,7 +38,7 @@ def load_csv() -> list[dict]:
     if not csvs:
         sys.exit("No CSV files found in TAL/")
 
-    latest = sorted(csvs, reverse=True)[0]
+    latest = sorted(csvs, key=os.path.getmtime, reverse=True)[0]
     print(f"Loading: {os.path.basename(latest)}")
 
     rows = []
@@ -102,6 +102,18 @@ def upsert(rows: list[dict], secrets: dict) -> dict:
     existing_names = {r[0] for r in cur.fetchall()}
     csv_names = {r["company_name"] for r in rows}
     new_names = csv_names - existing_names
+
+    # ── Enrich manually-added accounts (no zi_id) that now appear in CSV with a zi_id ──
+    # Without this, the with_zi upsert would create a duplicate instead of enriching.
+    enrich_cols = ["zi_id","domain","phone","street","city","state","zip","country","industry","nscorp_url","linkedin_url","sales_rep"]
+    for r in with_zi:
+        cur.execute(f"""
+            UPDATE accounts SET {", ".join(f"{c} = %s" for c in enrich_cols)}, updated_at = now()
+            WHERE rep_id = %s AND company_name = %s AND (zi_id IS NULL OR zi_id = '')
+              AND active = true
+        """, [r[c] for c in enrich_cols] + [REP_ID, r["company_name"]])
+    if with_zi:
+        conn.commit()
 
     # ── Upsert accounts in CSV — mark all active, only set assigned=false for new ──
     if with_zi:
