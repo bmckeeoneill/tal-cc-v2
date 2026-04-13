@@ -258,6 +258,15 @@ def log_ai_call(row: dict) -> None:
     client.table("ai_query_log").insert(row).execute()
 
 
+def get_today_ai_call_count() -> int:
+    """Count Claude API calls made today (UTC)."""
+    import datetime
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    resp = get_client().table("ai_query_log").select("id", count="exact") \
+        .gte("queried_at", f"{today}T00:00:00").execute()
+    return resp.count or 0
+
+
 def mark_signal_processed(signal_id: str) -> None:
     client = get_client()
     client.table("signals_raw").update({"processed": True}).eq("id", signal_id).execute()

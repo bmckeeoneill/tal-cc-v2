@@ -20,21 +20,36 @@ import anthropic
 from rapidfuzz import fuzz, process as fuzz_process
 
 import db
-from config import get_anthropic_key, REP_ID, MODEL, MATCH_THRESHOLD
+from config import get_anthropic_key, REP_ID, MODEL, MATCH_THRESHOLD, DAILY_AI_CALL_BUDGET
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
 SIGNAL_TYPES = ["exec_hire", "funding", "tech_adoption", "expansion", "event", "intent_signal", "crm_other", "other"]
+
+
+class BudgetExceededError(Exception):
+    """Raised when the daily Claude API call budget is exhausted."""
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 CRM_SENDER = "unknown-email@nlcorp.com"
 BRIAN_SENDERS = {"brian.br.oneill@oracle.com", "bmckeeoneill@gmail.com"}
 
 
+def _check_budget() -> None:
+    """Raise BudgetExceededError if today's call count is at or over the daily limit."""
+    count = db.get_today_ai_call_count()
+    if count >= DAILY_AI_CALL_BUDGET:
+        raise BudgetExceededError(
+            f"Daily Claude budget exhausted ({count}/{DAILY_AI_CALL_BUDGET} calls today). "
+            "Pipeline halted. Will resume tomorrow."
+        )
+
+
 def _claude_text(client: anthropic.Anthropic, prompt: str, signal_id: str, call_type: str) -> str:
     """Call Claude text, log, return response."""
+    _check_budget()
     response = client.messages.create(
         model=MODEL,
         max_tokens=512,
@@ -57,6 +72,7 @@ def _claude_vision(client: anthropic.Anthropic, image_b64: str, mime_type: str, 
     Call Claude Vision on a base64 image.
     Returns dict with: company_name, what_happened, why_relevant, signal_type
     """
+    _check_budget()
     prompt = (
         "You are analyzing a screenshot forwarded by a sales rep. Extract the following:\n"
         "1. Company name (if visible)\n"
@@ -445,6 +461,12 @@ def _parse_sdr_table(body: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def process_all_signals() -> dict:
+    # Bail immediately if daily budget already gone — don't even fetch signals
+    today_count = db.get_today_ai_call_count()
+    if today_count >= DAILY_AI_CALL_BUDGET:
+        print(f"⚠ Daily Claude budget exhausted ({today_count}/{DAILY_AI_CALL_BUDGET}). Skipping pipeline run.")
+        return {"total": 0, "matched": 0, "review_queue": 0, "errors": 0, "budget_exceeded": True}
+
     client = anthropic.Anthropic(api_key=get_anthropic_key())
     account_names = db.get_account_names(REP_ID)
     signals = db.get_unprocessed_signals(REP_ID)
@@ -453,6 +475,11 @@ def process_all_signals() -> dict:
 
     for signal in signals:
         try:
+            # Mark processed immediately — before any Claude calls.
+            # If Claude fails or the pipeline is killed mid-run, the signal won't loop.
+            # Worst case: one signal is skipped. That's recoverable. A billing loop is not.
+            db.mark_signal_processed(signal["id"])
+
             source = detect_source(signal)
             company_name = None
             signal_type = "other"
@@ -481,6 +508,7 @@ def process_all_signals() -> dict:
 
                 if image:
                     image_b64, mime_type = image
+                    _check_budget()
                     response = client.messages.create(
                         model=MODEL, max_tokens=512,
                         messages=[{"role": "user", "content": [
@@ -490,6 +518,7 @@ def process_all_signals() -> dict:
                     )
                 else:
                     body_excerpt = (signal.get("body_text") or "")[:2000]
+                    _check_budget()
                     response = client.messages.create(
                         model=MODEL, max_tokens=512,
                         messages=[{"role": "user", "content": f"{account_prompt}\n\nCONTENT:\n{body_excerpt}"}],
@@ -556,6 +585,7 @@ def process_all_signals() -> dict:
                         "Return only a JSON object with keys: company_name, website\n"
                         "If you cannot find a value, use null."
                     )
+                    _check_budget()
                     response = client.messages.create(
                         model=MODEL, max_tokens=256,
                         messages=[{"role": "user", "content": [
@@ -619,6 +649,7 @@ def process_all_signals() -> dict:
                         "Return only a JSON object with keys: company_name, lsad_date, website\n"
                         "Use null for any field you cannot find."
                     )
+                    _check_budget()
                     vision_resp = client.messages.create(
                         model=MODEL, max_tokens=256,
                         messages=[{"role": "user", "content": [
@@ -706,6 +737,7 @@ def process_all_signals() -> dict:
                         'Example: [{"name": "Jane Doe", "title": "CFO", "email": "jane@acme.com", '
                         '"phone": null, "linkedin_url": null, "company_name": "Acme Corp"}]'
                     )
+                    _check_budget()
                     response = client.messages.create(
                         model=MODEL, max_tokens=512,
                         messages=[{"role": "user", "content": [
