@@ -308,6 +308,11 @@ def write_matched_signal(
     source: str,
     headline: str | None = None,
 ) -> None:
+    # Skip entirely if already processed — prevents repeat Claude billing on pipeline retries
+    if db.signal_already_processed(signal["id"], account_id):
+        print(f"  — [skip] signal {signal['id'][:8]} already processed for account {account_id[:8]}")
+        return
+
     now = datetime.now(timezone.utc)
 
     # Use provided headline; fall back to subject (never use bare screenshot filenames)

@@ -242,7 +242,14 @@ def insert_weekly_digest(rows: list[dict]) -> None:
 
 def insert_outreach_suggestion(row: dict) -> None:
     client = get_client()
-    client.table("outreach_templates").insert(row).execute()
+    client.table("outreach_templates").upsert(row, on_conflict="signal_id,account_id").execute()
+
+
+def signal_already_processed(raw_id: str, account_id: str) -> bool:
+    """Return True if this (signal, account) pair is already in signals_processed."""
+    client = get_client()
+    resp = client.table("signals_processed").select("id").eq("raw_id", raw_id).eq("account_id", account_id).limit(1).execute()
+    return bool(resp.data)
 
 
 def log_ai_call(row: dict) -> None:
