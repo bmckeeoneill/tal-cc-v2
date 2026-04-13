@@ -5,7 +5,7 @@ content_utils.py — Claude-powered content library matching for TAL Command Cen
 import json
 
 import db
-from config import get_anthropic_key, MODEL
+from config import get_anthropic_key, MODEL, DAILY_AI_CALL_BUDGET
 
 
 def get_relevant_resources(
@@ -46,6 +46,8 @@ def get_relevant_resources(
     )
 
     try:
+        if db.get_today_ai_call_count() >= DAILY_AI_CALL_BUDGET:
+            return []
         client = anthropic.Anthropic(api_key=get_anthropic_key())
         resp = client.messages.create(
             model=MODEL,

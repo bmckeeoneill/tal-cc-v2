@@ -232,6 +232,20 @@ def insert_weekly_analysis(row: dict) -> None:
     client.table("weekly_analysis").insert(row).execute()
 
 
+def weekly_analysis_exists(account_id: str, week_of: str) -> bool:
+    """Return True if a weekly analysis already exists for this account+week."""
+    resp = get_client().table("weekly_analysis").select("id") \
+        .eq("account_id", account_id).eq("week_of", week_of).limit(1).execute()
+    return bool(resp.data)
+
+
+def weekly_digest_exists(rep_id: str, week_of: str) -> bool:
+    """Return True if a weekly digest already exists for this rep+week."""
+    resp = get_client().table("weekly_digest").select("id") \
+        .eq("rep_id", rep_id).eq("week_of", week_of).limit(1).execute()
+    return bool(resp.data)
+
+
 def insert_weekly_digest(rows: list[dict]) -> None:
     """Insert scored accounts for the week."""
     if not rows:

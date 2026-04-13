@@ -21,7 +21,7 @@ import anthropic
 
 import db
 import signal_processor
-from config import get_anthropic_key, MODEL, REP_ID
+from config import get_anthropic_key, MODEL, REP_ID, DAILY_AI_CALL_BUDGET
 
 SIGNAL_TYPE_WEIGHTS = {
     "exec_hire": 3,
@@ -41,6 +41,15 @@ def _week_of() -> str:
 
 def run_weekly_analysis(client: anthropic.Anthropic, account_id: str, company_name: str) -> None:
     """Generate and store weekly analysis for one account."""
+    # Skip if already generated this week — prevents re-billing on repeated pipeline runs
+    if db.weekly_analysis_exists(account_id, _week_of()):
+        return
+
+    # Skip if daily budget exhausted
+    if db.get_today_ai_call_count() >= DAILY_AI_CALL_BUDGET:
+        print(f"  ⚠ Budget exhausted — skipping weekly analysis for {company_name}")
+        return
+
     signals = db.get_signals_for_account(account_id, days=7)
     if not signals:
         return
@@ -105,6 +114,15 @@ def run_weekly_analysis(client: anthropic.Anthropic, account_id: str, company_na
 def run_weekly_digest(client: anthropic.Anthropic, updated_account_ids: set[str]) -> None:
     """Score accounts that had signals this week and write top 5 to weekly_digest."""
     if not updated_account_ids:
+        return
+
+    # Skip if digest already generated this week — prevents re-billing on repeated pipeline runs
+    if db.weekly_digest_exists(REP_ID, _week_of()):
+        return
+
+    # Skip if daily budget exhausted
+    if db.get_today_ai_call_count() >= DAILY_AI_CALL_BUDGET:
+        print("  ⚠ Budget exhausted — skipping weekly digest")
         return
 
     account_names = {a["id"]: a["company_name"] for a in db.get_account_names(REP_ID)}

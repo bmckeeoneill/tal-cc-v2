@@ -12,7 +12,7 @@ st.set_page_config(
 
 import db
 from db import init_db, load_my_accounts, get_account_count
-from config import get_anthropic_key as _get_anthropic_key, MODEL, REP_ID
+from config import get_anthropic_key as _get_anthropic_key, MODEL, REP_ID, DAILY_AI_CALL_BUDGET
 from pages._dashboard import render as render_home
 from pages._tal import render as render_tal
 from pages._activity import render as render_activity
@@ -261,31 +261,34 @@ if clear:
     st.rerun()
 
 if send and user_input.strip():
-    page_context = _get_chat_context()
-    system_prompt = CHAT_SYSTEM.format(page_context=page_context)
-    st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
-    try:
-        _client = _anthropic.Anthropic(api_key=_get_anthropic_key())
-        response = _client.messages.create(
-            model=CHAT_MODEL,
-            max_tokens=1024,
-            system=system_prompt,
-            messages=st.session_state.chat_history,
-        )
-        reply = response.content[0].text.strip()
-        st.session_state.chat_history.append({"role": "assistant", "content": reply})
-        db.log_ai_call({
-            "rep_id": REP_ID,
-            "call_type": "chat",
-            "prompt_used": system_prompt,
-            "model_version": CHAT_MODEL,
-            "question": user_input.strip(),
-            "response": reply,
-            "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
-    except Exception as e:
-        st.error(f"Claude error: {e}")
-    st.rerun()
+    if db.get_today_ai_call_count() >= DAILY_AI_CALL_BUDGET:
+        st.error(f"Daily AI budget reached ({DAILY_AI_CALL_BUDGET} calls). Resets at midnight UTC.")
+    else:
+        page_context = _get_chat_context()
+        system_prompt = CHAT_SYSTEM.format(page_context=page_context)
+        st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
+        try:
+            _client = _anthropic.Anthropic(api_key=_get_anthropic_key())
+            response = _client.messages.create(
+                model=CHAT_MODEL,
+                max_tokens=1024,
+                system=system_prompt,
+                messages=st.session_state.chat_history,
+            )
+            reply = response.content[0].text.strip()
+            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+            db.log_ai_call({
+                "rep_id": REP_ID,
+                "call_type": "chat",
+                "prompt_used": system_prompt,
+                "model_version": CHAT_MODEL,
+                "question": user_input.strip(),
+                "response": reply,
+                "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            })
+        except Exception as e:
+            st.error(f"Claude error: {e}")
+        st.rerun()
 
 st.markdown("---")
 
