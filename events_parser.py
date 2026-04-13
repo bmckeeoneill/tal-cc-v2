@@ -191,42 +191,10 @@ def parse_events_email(body: str, raw_email_id: Optional[str] = None, ref: Optio
 def _accounts_for_event(event: dict, all_accounts: list[dict]) -> list[tuple[str, str]]:
     """
     Returns list of (account_id, match_reason) for an event.
+    All event types fan out to all accounts — in-person events are
+    worth sending to the whole territory regardless of location.
     """
-    event_type = event.get("event_type")
-    region = (event.get("region") or "").lower()
-
-    # Webinars, evergreen, competitive → all accounts
-    if event_type in ("webinar", "evergreen", "competitive"):
-        return [(a["id"], "webinar_all") for a in all_accounts]
-
-    # In-person → match by region/state
-    if not region:
-        return [(a["id"], "webinar_all") for a in all_accounts]
-
-    # Build set of matching state abbreviations
-    matching_states = set()
-
-    # Direct state name match
-    for abbr, full in STATE_ABBR.items():
-        if region in full or full in region:
-            matching_states.add(abbr)
-
-    # Region keyword match
-    for reg_key, states in REGION_STATES.items():
-        if reg_key in region or region in reg_key:
-            matching_states.update(states)
-
-    # If region IS a state name directly
-    if not matching_states:
-        matching_states.add(region.upper()[:2])
-
-    matched = []
-    for a in all_accounts:
-        acct_state = (a.get("state") or "").upper().strip()
-        if acct_state in matching_states:
-            matched.append((a["id"], "location_match"))
-
-    return matched
+    return [(a["id"], "all") for a in all_accounts]
 
 
 def _parse_events_with_claude(body: str, raw_email_id: Optional[str] = None, ref: Optional[date] = None) -> list[dict]:
@@ -286,7 +254,9 @@ def _parse_events_with_claude(body: str, raw_email_id: Optional[str] = None, ref
 
 def process_events_email(signal: dict) -> int:
     """
-    Parse signal body with Claude, write unconfirmed events.
+    Parse signal body and write unconfirmed events.
+    Tries the regex parser first (fast, no API cost); falls back to Claude
+    for emails that don't match the MMTT bullet format.
     User reviews and confirms in the Events page before they fan out to accounts.
     Returns count of events inserted.
     """
@@ -301,8 +271,11 @@ def process_events_email(signal: dict) -> int:
         except ValueError:
             pass
 
-    # Always use Claude — handles any format
-    parsed = _parse_events_with_claude(body, raw_email_id, ref)
+    # Try regex parser first — accurate dates, no API cost
+    parsed = parse_events_email(body, raw_email_id, ref)
+    if not parsed:
+        # Fall back to Claude for non-MMTT formats
+        parsed = _parse_events_with_claude(body, raw_email_id, ref)
     if not parsed:
         print(f"  [events] No events parsed from signal {raw_email_id}")
         return 0
