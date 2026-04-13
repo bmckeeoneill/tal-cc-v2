@@ -153,8 +153,8 @@ def detect_source(signal: dict) -> str:
     if subject == "sdr":
         return "sdr"
 
-    # Contacts capture: forwarded by Brian with subject exactly "contacts"
-    if subject == "contacts":
+    # Contacts capture: forwarded by Brian with subject "contacts" or "contacts - <company>"
+    if subject == "contacts" or subject.startswith("contacts"):
         return "contacts"
 
     # New account: subject contains "account" (e.g. "account", "new TAL account", "new account")
