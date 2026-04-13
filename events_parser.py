@@ -248,6 +248,11 @@ def _parse_events_with_claude(body: str, raw_email_id: Optional[str] = None, ref
         "Return only the JSON array, no explanation.\n\n"
         f"EMAIL:\n{body}"
     )
+    import db as _db
+    from config import DAILY_AI_CALL_BUDGET
+    if _db.get_today_ai_call_count() >= DAILY_AI_CALL_BUDGET:
+        print("  [events] Daily Claude budget exhausted — skipping event extraction")
+        return []
     client = anthropic.Anthropic(api_key=get_anthropic_key())
     resp = client.messages.create(
         model=MODEL,

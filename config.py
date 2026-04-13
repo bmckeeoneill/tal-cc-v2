@@ -30,4 +30,4 @@ def get_anthropic_key() -> str:
 REP_ID = "brianoneill"
 MODEL = "claude-sonnet-4-6"
 MATCH_THRESHOLD = 80
-DAILY_AI_CALL_BUDGET = 200  # Hard ceiling on Claude API calls per day across all pipeline runs
+DAILY_AI_CALL_BUDGET = 300  # Hard ceiling on Claude API calls per day across all pipeline runs
