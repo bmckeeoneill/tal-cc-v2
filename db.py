@@ -1201,14 +1201,23 @@ def get_similar_customers_naics(account_id: str, limit: int = 10, excluded_ids: 
     if not oa_key:
         return []
 
-    embed_text = f"{company_name} | {naics_code} {naics_desc} | {industry} | {naics_notes}"
+    # Build rich query text — mirrors the embedding text used in reembed_customers.py
+    query_parts = [company_name]
+    if industry:
+        query_parts.append("Industry: " + industry)
+    if naics_desc:
+        query_parts.append("NAICS: " + naics_desc)
+    if naics_notes:
+        query_parts.append(naics_notes)
+    embed_text = "\n".join(p for p in query_parts if p)
+
     oa = _openai.OpenAI(api_key=oa_key)
     emb_resp = oa.embeddings.create(model="text-embedding-3-small", input=[embed_text])
     emb = emb_resp.data[0].embedding
     emb_str = "[" + ",".join(str(x) for x in emb) + "]"
 
-    # pgvector similarity search — fetch limit*4 candidates to allow filtering
-    fetch_n = max(limit * 4, 40)
+    # pgvector similarity search — fetch extra candidates to allow TAL/dismiss filtering
+    fetch_n = max(limit * 6, 60)
     secrets_content = open(secrets_path).read() if os.path.exists(secrets_path) else ""
     db_m = _re.search(r'DATABASE_URL\s*=\s*"([^"]+)"', secrets_content)
     if not db_m:
@@ -1216,14 +1225,20 @@ def get_similar_customers_naics(account_id: str, limit: int = 10, excluded_ids: 
 
     conn = psycopg2.connect(db_m.group(1))
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # Prefer confirmed references, then candidates — order by (reference tier, vector distance)
     cur.execute("""
         SELECT id, company_name, website, industry, business_type, naics_code,
                naics_description, reference_status, state, v_rank, highlights,
-               references_descriptors,
-               1 - (embedding <=> %s::vector) AS similarity
+               references_descriptors, what_they_do,
+               1 - (embedding <=> %s::vector) AS similarity,
+               CASE
+                 WHEN reference_status IN ('Reference \u2013 Active', 'Reference \u2013 Ready') THEN 0
+                 WHEN reference_status LIKE 'Candidate%%' THEN 1
+                 ELSE 2
+               END AS ref_tier
         FROM customers
         WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> %s::vector
+        ORDER BY ref_tier ASC, embedding <=> %s::vector
         LIMIT %s
     """, (emb_str, emb_str, fetch_n))
     rows = cur.fetchall()
