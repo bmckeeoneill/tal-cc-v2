@@ -6,6 +6,11 @@ from db import get_accounts, get_account_states, get_account_industries
 from pages._shared import go, back_btn, score_badge
 
 
+@st.cache_data(ttl=60)
+def _cached_accounts():
+    return get_accounts()
+
+
 @st.cache_data(ttl=300)
 def _cached_states():
     return get_account_states()
@@ -32,21 +37,17 @@ def render():
         all_states = _cached_states()
         selected_states = st.multiselect("State", options=all_states, placeholder="All states", label_visibility="collapsed")
 
+    accounts = _cached_accounts()
+    if search:
+        s = search.lower()
+        accounts = [a for a in accounts if s in (a.get("company_name") or "").lower()]
     if tech_search.strip():
-        accounts = db.search_by_tech_stack(tech_search.strip())
-        if search:
-            s = search.lower()
-            accounts = [a for a in accounts if s in (a.get("company_name") or "").lower()]
-        if selected_states:
-            accounts = [a for a in accounts if a.get("state") in selected_states]
-        if selected_industries:
-            accounts = [a for a in accounts if a.get("industry") in selected_industries]
-    else:
-        accounts = get_accounts(
-            search=search or None,
-            states=selected_states or None,
-            industries=selected_industries or None,
-        )
+        t = tech_search.strip().lower()
+        accounts = [a for a in accounts if any(t in (ts or "").lower() for ts in (a.get("tech_stack") or []))]
+    if selected_states:
+        accounts = [a for a in accounts if a.get("state") in selected_states]
+    if selected_industries:
+        accounts = [a for a in accounts if a.get("industry") in selected_industries]
 
     # ── Add Account ───────────────────────────────────────────────────────────
     if st.session_state.get("show_add_account"):
