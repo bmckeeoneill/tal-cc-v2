@@ -789,7 +789,15 @@ def render():
                         wtc_lines.append(line)
                     parts.append("<p style=\"margin:0 0 16px 0;\">" + "<br>".join(wtc_lines) + "</p>")
 
-                # 4. ACCOUNT
+                # 4. WHY NETSUITE (conditional — only if generated)
+                _industry_brief = st.session_state.get(f"industry_brief_{account_id}")
+                if _industry_brief:
+                    parts.append(HR)
+                    parts.append(sec("Why NetSuite"))
+                    brief_html = _industry_brief.replace("\n", "<br>").replace("<br>- ", "<br>• ")
+                    parts.append(f'<p style="margin:0 0 16px 0;">{brief_html}</p>')
+
+                # 5. ACCOUNT
                 parts.append(HR)
                 parts.append(sec("Account"))
                 acct_lines = [f'<strong>{company}</strong>']
@@ -803,7 +811,7 @@ def render():
                     acct_lines.append(" &nbsp;|&nbsp; ".join(links))
                 parts.append("<p style=\"margin:0 0 16px 0;\">" + "<br>".join(acct_lines) + "</p>")
 
-                # 4. NOTES (up to 3, conditional)
+                # 6. NOTES (up to 3, conditional)
                 if notes_list:
                     parts.append(HR)
                     parts.append(sec("Notes"))
