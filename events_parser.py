@@ -51,15 +51,20 @@ REGION_STATES = {
 
 
 def _infer_year(month: int, day: int, ref: Optional[date] = None) -> int:
-    """Infer year for a month/day relative to ref date (defaults to today).
-    If the resulting date is more than 60 days before ref, assume next year.
-    This prevents bumping events to +1 year just because the email arrived
-    a few days after the event month rolled over.
+    """Infer year for an event with only month/day.
+
+    Events in a digest are always upcoming (or very recently past).
+    Rules:
+      - Future dates (candidate >= ref) → current year, always.
+      - Up to 30 days in the past → current year (grace window for stale listings
+        or emails that arrived a day or two after an event).
+      - More than 30 days in the past → next year. This is the year-boundary case:
+        e.g. a December digest listing January/February dates for the coming year.
     """
     from datetime import timedelta
     ref = ref or date.today()
     candidate = date(ref.year, month, day)
-    if (ref - candidate).days > 60:
+    if (ref - candidate).days > 30:
         return ref.year + 1
     return ref.year
 
@@ -208,7 +213,7 @@ def _parse_events_with_claude(body: str, raw_email_id: Optional[str] = None, ref
         f"The email below was received on {ref_str}. Extract all events from it.\n\n"
         "Return a JSON array. Each object must have these fields:\n"
         "  event_name (string)\n"
-        "  event_date (YYYY-MM-DD — use the email received date as reference; only push to next year if the date is more than 60 days before the received date)\n"
+        "  event_date (YYYY-MM-DD — use the email received date as reference; dates in the future or up to 30 days in the past use the current year; dates more than 30 days before the received date are year-boundary cases and belong to next year)\n"
         "  event_type (one of: webinar, in_person, evergreen, competitive)\n"
         "  region (string or null — only for in_person events, e.g. 'Texas', 'Central')\n"
         "  registration_url (string or null)\n"
