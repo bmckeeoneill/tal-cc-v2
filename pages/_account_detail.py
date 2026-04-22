@@ -646,6 +646,10 @@ def render():
         st.markdown("**Briefing**")
         if st.session_state.get(briefing_sent_key):
             st.success(st.session_state[briefing_sent_key])
+            if st.session_state.get(f"industry_brief_{account_id}"):
+                if st.button("Resend Briefing (includes Why NetSuite)", key=f"resend_briefing_{account_id}"):
+                    del st.session_state[briefing_sent_key]
+                    st.rerun()
         else:
             with st.spinner("Assembling briefing..."):
                 # ── Fetch data ────────────────────────────────────────────────
