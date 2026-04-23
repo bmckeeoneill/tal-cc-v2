@@ -12,8 +12,26 @@ _QUICK_LINKS = [
 ]
 
 
+@st.cache_data(ttl=300)
+def _counts():
+    return {
+        "accounts":       db.get_account_count(),
+        "activity":       db.get_recent_activity_count(),
+        "pending":        db.get_pending_review_count(),
+        "starred":        db.get_starred_count(),
+        "changes":        db.get_tal_changes_count(),
+        "claimed":        db.get_claimed_awaiting_count(),
+        "events":         db.get_upcoming_event_count(),
+        "leads":          db.get_active_lead_count(),
+        "contacts":       db.get_accounts_with_contacts_count(),
+        "chop":           db.get_chop_block_count(),
+        "watch":          db.get_watch_lead_count(),
+    }
+
+
 def render():
-    total = db.get_account_count()
+    c = _counts()
+    total = c["accounts"]
     today_str = datetime.date.today().strftime("%B %-d, %Y")
 
     st.title("TAL Command Center")
@@ -40,12 +58,11 @@ def render():
                      use_container_width=True, type="primary", key="tile_tal"):
             go("tal")
     with col2:
-        _activity_count = db.get_recent_activity_count()
-        if st.button(f"📡 Recent Activity\n\n{_activity_count}\n\nsignals this week",
+        if st.button(f"📡 Recent Activity\n\n{c['activity']}\n\nsignals this week",
                      use_container_width=True, type="primary", key="tile_activity"):
             go("activity")
     with col3:
-        pending = db.get_pending_review_count()
+        pending = c["pending"]
         unmatched_label = f"{pending} pending" if pending else "none pending"
         if st.button(f"⚡ Unmatched\n\n{pending}\n\n{unmatched_label}",
                      use_container_width=True, type="primary", key="tile_unmatched"):
@@ -54,31 +71,26 @@ def render():
     # Row 2: Best Targets · TAL Changes · Claimed Awaiting Briefing
     col4, col5, col6 = st.columns(3)
     with col4:
-        _starred_count = db.get_starred_count()
-        if st.button(f"⭐ Top Targets\n\n{_starred_count}\n\nstarred accounts",
+        if st.button(f"⭐ Top Targets\n\n{c['starred']}\n\nstarred accounts",
                      use_container_width=True, type="primary", key="tile_targets"):
             go("targets")
     with col5:
-        _changes_count = db.get_tal_changes_count()
-        if st.button(f"📋 TAL Changes\n\n{_changes_count}\n\nnew or removed",
+        if st.button(f"📋 TAL Changes\n\n{c['changes']}\n\nnew or removed",
                      use_container_width=True, type="primary", key="tile_changes"):
             go("changes")
     with col6:
-        _claimed_count = db.get_claimed_awaiting_count()
-        if st.button(f"📬 Claimed Awaiting Briefing\n\n{_claimed_count}\n\nneed briefing",
+        if st.button(f"📬 Claimed Awaiting Briefing\n\n{c['claimed']}\n\nneed briefing",
                      use_container_width=True, type="primary", key="tile_claimed"):
             go("claimed")
 
     # Row 3: Events · Leads to Check · Pipeline Scout
     col7, col8, col9 = st.columns(3)
     with col7:
-        _event_count = db.get_upcoming_event_count()
-        if st.button(f"📅 Events\n\n{_event_count}\n\nupcoming events",
+        if st.button(f"📅 Events\n\n{c['events']}\n\nupcoming events",
                      use_container_width=True, type="primary", key="tile_events"):
             go("events")
     with col8:
-        _lead_count = db.get_active_lead_count()
-        if st.button(f"💡 Leads to Check\n\n{_lead_count}\n\nactive leads",
+        if st.button(f"💡 Leads to Check\n\n{c['leads']}\n\nactive leads",
                      use_container_width=True, type="primary", key="tile_leads"):
             go("leads")
     with col9:
@@ -89,17 +101,14 @@ def render():
     # Row 4: Contacts · Chop Block
     col10, col11, col12 = st.columns(3)
     with col10:
-        _contacts_count = db.get_accounts_with_contacts_count()
-        if st.button(f"👤 Contacts Added\n\n{_contacts_count}\n\npending confirmation",
+        if st.button(f"👤 Contacts Added\n\n{c['contacts']}\n\npending confirmation",
                      use_container_width=True, type="primary", key="tile_contacts"):
             go("contacts")
     with col11:
-        _chop_count = db.get_chop_block_count()
-        if st.button(f"🪓 Chop Block\n\n{_chop_count}\n\nmarked for removal",
+        if st.button(f"🪓 Chop Block\n\n{c['chop']}\n\nmarked for removal",
                      use_container_width=True, type="primary", key="tile_chop_block"):
             go("chop_block")
     with col12:
-        _watch_count = db.get_watch_lead_count()
-        if st.button(f"👁 Leads to Watch\n\n{_watch_count}\n\non watch list",
+        if st.button(f"👁 Leads to Watch\n\n{c['watch']}\n\non watch list",
                      use_container_width=True, type="primary", key="tile_watch"):
             go("watch")

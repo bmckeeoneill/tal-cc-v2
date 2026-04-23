@@ -70,7 +70,9 @@ def get_accounts(
 ) -> list[dict]:
     """Return active accounts with optional filters, ordered by score desc then name."""
     client = get_client()
-    q = client.table("accounts").select("*").eq("rep_id", rep_id).eq("active", True)
+    q = client.table("accounts").select(
+        "id, company_name, state, score, industry, last_signal_date, signal_count, domain, starred, tech_stack, rep_id"
+    ).eq("rep_id", rep_id).eq("active", True)
     if states:
         q = q.in_("state", states)
     if industries:
@@ -373,12 +375,14 @@ def _bulk_fetch_account_data(client, account_ids: list) -> tuple[dict, dict, dic
         .select("account_id, signal_type, headline, summary, signal_date")
         .in_("account_id", account_ids)
         .order("signal_date", desc=True)
-        .limit(20000)
+        .limit(5000)
         .execute()
         .data or []
     )
     for s in signals_raw:
-        signals_by_account.setdefault(s["account_id"], []).append(s)
+        bucket = signals_by_account.setdefault(s["account_id"], [])
+        if len(bucket) < 10:  # cap at 10 signals per account for context
+            bucket.append(s)
 
     notes_raw = (
         client.table("account_notes")
@@ -755,20 +759,22 @@ def get_active_leads() -> list[dict]:
     client = get_client()
     resp = (
         client.table("leads")
-        .select("*")
+        .select("id, company_name, website, status, created_at, raw_email_id, notes, industry, state")
         .eq("status", "active")
         .order("created_at", desc=True)
         .execute()
     )
     leads = resp.data or []
-    # Enrich with body_text from signals_raw so the UI can show email content
-    for lead in leads:
-        raw_id = lead.get("raw_email_id")
-        if raw_id and not lead.get("body_text"):
-            sig = client.table("signals_raw").select("body_text, subject").eq("id", raw_id).maybe_single().execute()
-            if sig.data:
-                lead["body_text"] = sig.data.get("body_text") or ""
-                lead["email_subject"] = sig.data.get("subject") or ""
+    # Bulk-fetch body_text from signals_raw (single query instead of N+1)
+    raw_ids = [l["raw_email_id"] for l in leads if l.get("raw_email_id") and not l.get("body_text")]
+    if raw_ids:
+        sig_resp = client.table("signals_raw").select("id, body_text, subject").in_("id", raw_ids).execute()
+        sig_map = {s["id"]: s for s in (sig_resp.data or [])}
+        for lead in leads:
+            rid = lead.get("raw_email_id")
+            if rid and rid in sig_map:
+                lead["body_text"] = sig_map[rid].get("body_text") or ""
+                lead["email_subject"] = sig_map[rid].get("subject") or ""
     return leads
 
 
@@ -819,7 +825,7 @@ def get_watch_leads() -> list[dict]:
     from config import REP_ID as _REP_ID
     resp = (
         get_client().table("leads_to_watch")
-        .select("*")
+        .select("id, company_name, website, ns_url, lsad_date, starred, notes, status, raw_email_id, rep_id")
         .eq("rep_id", _REP_ID)
         .eq("status", "active")
         .order("lsad_date")
@@ -1227,9 +1233,7 @@ def get_similar_customers_naics(account_id: str, limit: int = 10, excluded_ids: 
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     # Prefer confirmed references, then candidates — order by (reference tier, vector distance)
     cur.execute("""
-        SELECT id, company_name, website, industry, business_type, naics_code,
-               naics_description, reference_status, state, v_rank, highlights,
-               references_descriptors, what_they_do,
+        SELECT id, company_name, website, industry, reference_status, state, v_rank,
                1 - (embedding <=> %s::vector) AS similarity,
                CASE
                  WHEN reference_status IN ('Reference \u2013 Active', 'Reference \u2013 Ready') THEN 0
