@@ -314,7 +314,9 @@ def render():
     # ── Industry Brief ────────────────────────────────────────────────────────
     with st.expander("Why NetSuite — Industry Brief"):
         brief_key = f"industry_brief_{account_id}"
-        existing_brief = st.session_state.get(brief_key)
+        existing_brief = st.session_state.get(brief_key) or acct.get("industry_brief") or db.get_industry_brief(account_id)
+        if existing_brief:
+            st.session_state[brief_key] = existing_brief  # keep session state warm
         if existing_brief:
             st.markdown(existing_brief)
             if st.button("Regenerate", key=f"regen_brief_{account_id}"):
@@ -351,6 +353,7 @@ def render():
                                     "prompt_used": brief_prompt, "model_version": MODEL,
                                     "queried_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
                     st.session_state[brief_key] = brief_text
+                    db.save_industry_brief(account_id, brief_text)
                     st.rerun()
             else:
                 st.caption(f"Industry: {industry or '—'}")
@@ -794,7 +797,11 @@ def render():
                     parts.append("<p style=\"margin:0 0 16px 0;\">" + "<br>".join(wtc_lines) + "</p>")
 
                 # 4. WHY NETSUITE (conditional — only if generated)
-                _industry_brief = st.session_state.get(f"industry_brief_{account_id}")
+                _industry_brief = (
+                    st.session_state.get(f"industry_brief_{account_id}")
+                    or acct.get("industry_brief")
+                    or db.get_industry_brief(account_id)
+                )
                 if _industry_brief:
                     parts.append(HR)
                     parts.append(sec("Why NetSuite"))

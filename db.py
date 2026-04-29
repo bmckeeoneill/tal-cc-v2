@@ -909,6 +909,19 @@ def mark_briefing_sent(account_id: str) -> None:
     }).eq("id", account_id).execute()
 
 
+def save_industry_brief(account_id: str, brief_text: str) -> None:
+    """Persist the Why NetSuite industry brief to the accounts table."""
+    client = get_client()
+    client.table("accounts").update({"industry_brief": brief_text}).eq("id", account_id).execute()
+
+
+def get_industry_brief(account_id: str) -> str | None:
+    """Return the stored industry brief for an account, or None."""
+    client = get_client()
+    resp = client.table("accounts").select("industry_brief").eq("id", account_id).single().execute()
+    return (resp.data or {}).get("industry_brief") or None
+
+
 # ---------------------------------------------------------------------------
 # TAL refresh helpers
 # ---------------------------------------------------------------------------
