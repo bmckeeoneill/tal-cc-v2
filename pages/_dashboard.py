@@ -58,7 +58,7 @@ def render():
                      use_container_width=True, type="primary", key="tile_tal"):
             go("tal")
     with col2:
-        if st.button(f"📡 Recent Activity\n\n{c['activity']}\n\nsignals this week",
+        if st.button(f"📡 Recent Activity\n\n{c['activity']}\n\nsignals to review",
                      use_container_width=True, type="primary", key="tile_activity"):
             go("activity")
     with col3:

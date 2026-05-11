@@ -173,17 +173,14 @@ def insert_review_queue(row: dict) -> None:
     client.table("signal_review_queue").upsert(row, on_conflict="raw_id").execute()
 
 
-def get_recent_activity_count(rep_id: str = "brianoneill", days: int = 7) -> int:
-    """Count of signals_processed in the last N days, excluding dismissed."""
-    from datetime import date, timedelta
-    since = (date.today() - timedelta(days=days)).isoformat()
+def get_recent_activity_count(rep_id: str = "brianoneill") -> int:
+    """Count of undismissed signals_processed (all time)."""
     client = get_client()
     resp = (
         client.table("signals_processed")
         .select("id", count="exact")
         .eq("rep_id", rep_id)
         .eq("dismissed", False)
-        .gte("signal_date", since)
         .execute()
     )
     return resp.count or 0

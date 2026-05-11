@@ -1,5 +1,4 @@
 """Recent activity page."""
-from datetime import date, timedelta
 import streamlit as st
 
 import db
@@ -10,27 +9,35 @@ def render():
     back_btn("← Home", "home")
     st.markdown('<div class="page-heading" style="border-left:4px solid #3D6B4F;padding-left:10px;">Recent Activity</div>', unsafe_allow_html=True)
 
-    since = (date.today() - timedelta(days=7)).isoformat()
     resp = (
         db.get_client()
         .table("signals_processed")
         .select("id, signal_date, account_id, signal_type, headline, signal_source")
         .eq("rep_id", "brianoneill")
         .eq("dismissed", False)
-        .gte("signal_date", since)
         .order("signal_date", desc=True)
         .execute()
     )
     signals = resp.data or []
 
-    account_names = {a["id"]: a["company_name"] for a in db.get_account_names()}
+    # Fetch account details for enrichment
+    acct_resp = (
+        db.get_client()
+        .table("accounts")
+        .select("id, company_name, industry, state, score, nscorp_url")
+        .eq("rep_id", "brianoneill")
+        .eq("active", True)
+        .execute()
+    )
+    accounts = {a["id"]: a for a in (acct_resp.data or [])}
 
     if not signals:
-        st.info("No signals ingested in the last 7 days.")
+        st.info("No undismissed signals.")
         return
 
-    header = st.columns([1, 2, 1, 3, 1, 1, 1])
-    for col, h in zip(header, ["Date", "Company", "Type", "Signal", "Source", "", ""]):
+    # Header: Company | Actions | Last Signal | Industry | State | Score
+    header = st.columns([2, 2, 3, 2, 1, 1])
+    for col, h in zip(header, ["Company", "Actions", "Last Signal", "Industry", "State", "Score"]):
         col.markdown(f"**{h}**")
     st.divider()
 
@@ -38,24 +45,40 @@ def render():
     account_options = {a["company_name"]: a["id"] for a in sorted(all_accounts, key=lambda x: x["company_name"])}
     sb = db.get_client()
 
-    for i, s in enumerate(signals):
-        company = account_names.get(s.get("account_id"), "—")
-        signal_type = (s.get("signal_type") or "other").replace("_", " ").title()
+    for s in signals:
         sig_id = s.get("id")
-
-        cols = st.columns([1, 2, 1, 3, 1, 1, 1])
-        cols[0].caption((s.get("signal_date") or "")[:10])
-        cols[1].markdown(f"**{company}**")
-        cols[2].write(signal_type)
-        cols[3].write(s.get("headline") or "—")
-        cols[4].caption(s.get("signal_source") or "email")
         account_id = s.get("account_id")
-        if account_id and cols[5].button("View", key=f"act_view_{sig_id}"):
-            st.session_state.selected_account = account_id
-            go("account")
-        if cols[6].button("Dismiss", key=f"act_dismiss_{sig_id}"):
-            db.dismiss_signal(sig_id)
-            st.rerun()
+        acct = accounts.get(account_id, {})
+
+        company    = acct.get("company_name") or "—"
+        industry   = acct.get("industry") or "—"
+        state      = acct.get("state") or "—"
+        score      = acct.get("score")
+        ns_url     = acct.get("nscorp_url") or ""
+        signal_date = (s.get("signal_date") or "")[:10]
+        headline   = s.get("headline") or "—"
+
+        cols = st.columns([2, 2, 3, 2, 1, 1])
+        cols[0].markdown(f"**{company}**")
+
+        with cols[1]:
+            btn_cols = st.columns(3)
+            if account_id and btn_cols[0].button("View", key=f"act_view_{sig_id}"):
+                st.session_state.selected_account = account_id
+                go("account")
+            if ns_url:
+                btn_cols[1].markdown(
+                    f'<a href="{ns_url}" target="_blank" style="display:inline-block;padding:4px 10px;font-size:0.78rem;font-weight:600;background:#E7F2F5;color:#36677D;border:1px solid #b8d4dc;border-radius:6px;text-decoration:none;">NS</a>',
+                    unsafe_allow_html=True,
+                )
+            if btn_cols[2].button("✕", key=f"act_dismiss_{sig_id}", help="Dismiss"):
+                db.dismiss_signal(sig_id)
+                st.rerun()
+
+        cols[2].write(f"{signal_date} — {headline}")
+        cols[3].caption(industry)
+        cols[4].caption(state)
+        cols[5].caption(str(score) if score is not None else "—")
 
         with st.expander("Reassign to different account", expanded=False):
             selected_name = st.selectbox(
