@@ -71,7 +71,7 @@ def get_accounts(
     """Return active accounts with optional filters, ordered by score desc then name."""
     client = get_client()
     q = client.table("accounts").select(
-        "id, company_name, state, score, industry, last_signal_date, signal_count, domain, starred, tech_stack, rep_id"
+        "id, company_name, state, score, industry, last_signal_date, signal_count, domain, nscorp_url, starred, tech_stack, rep_id"
     ).eq("rep_id", rep_id).eq("active", True)
     if states:
         q = q.in_("state", states)
@@ -1341,7 +1341,7 @@ def get_starred_count() -> int:
 def get_starred_accounts() -> list[dict]:
     from config import REP_ID as _REP_ID
     resp = get_client().table("accounts") \
-        .select("id, company_name, industry, state, revenue_range, domain, signal_count, last_signal_date") \
+        .select("id, company_name, industry, state, revenue_range, domain, nscorp_url, signal_count, last_signal_date") \
         .eq("rep_id", _REP_ID).eq("active", True).eq("starred", True) \
         .order("company_name").execute()
     return resp.data or []
@@ -1374,7 +1374,7 @@ def get_chop_block_count() -> int:
 def get_chop_block_accounts() -> list[dict]:
     from config import REP_ID as _REP_ID
     resp = get_client().table("accounts") \
-        .select("id, company_name, industry, state, domain, signal_count, last_signal_date") \
+        .select("id, company_name, industry, state, domain, nscorp_url, signal_count, last_signal_date") \
         .eq("rep_id", _REP_ID).eq("active", True).eq("chop_block", True) \
         .order("company_name").execute()
     return resp.data or []

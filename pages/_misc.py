@@ -65,13 +65,13 @@ def render_targets():
 
     st.caption(f"{len(starred)} starred accounts")
 
-    header_cols = st.columns([0.5, 3, 1, 1, 2, 2, 1])
-    for col, h in zip(header_cols, ["", "Company", "State", "Score", "Industry", "Last Signal", "Action"]):
+    header_cols = st.columns([0.5, 3, 1.2, 1, 1, 2, 2])
+    for col, h in zip(header_cols, ["", "Company", "Action", "State", "Score", "Industry", "Last Signal"]):
         col.markdown(f"**{h}**")
     st.divider()
 
     for acct in starred:
-        cols = st.columns([0.5, 3, 1, 1, 2, 2, 1])
+        cols = st.columns([0.5, 3, 1.2, 1, 1, 2, 2])
         acct_id = acct["id"]
 
         with cols[0]:
@@ -83,27 +83,27 @@ def render_targets():
         s = acct.get("score") or 0
         signal_date = acct.get("last_signal_date") or ""
         signal_date_str = str(signal_date)[:10] if signal_date else "—"
+        ns_url = acct.get("nscorp_url") or ""
+        name = acct.get("company_name") or "—"
 
         with cols[1]:
-            domain = acct.get("domain") or ""
-            name = acct.get("company_name") or "—"
-            if domain:
-                st.markdown(f"**[{name}](https://{domain})**")
+            if ns_url:
+                st.markdown(f'**<a href="{ns_url}" target="_blank" style="color:inherit;text-decoration:none;">{name}</a>**', unsafe_allow_html=True)
             else:
                 st.markdown(f"**{name}**")
         with cols[2]:
-            st.write(acct.get("state") or "—")
-        with cols[3]:
-            st.markdown(score_badge(s), unsafe_allow_html=True)
-        with cols[4]:
-            st.write(acct.get("industry") or "—")
-        with cols[5]:
-            sc = acct.get("signal_count") or 0
-            st.caption(f"{sc} signals · {signal_date_str}")
-        with cols[6]:
-            if st.button("View", key=f"view_t_{acct_id}"):
+            if st.button("View-TCC", key=f"view_t_{acct_id}"):
                 st.session_state.selected_account = acct_id
                 go("account")
+        with cols[3]:
+            st.write(acct.get("state") or "—")
+        with cols[4]:
+            st.markdown(score_badge(s), unsafe_allow_html=True)
+        with cols[5]:
+            st.write(acct.get("industry") or "—")
+        with cols[6]:
+            sc = acct.get("signal_count") or 0
+            st.caption(f"{sc} signals · {signal_date_str}")
 
 
 def render_chop_block():
@@ -118,33 +118,33 @@ def render_chop_block():
 
     st.caption(f"{len(accounts)} accounts marked for removal")
 
-    header_cols = st.columns([3, 1, 1, 2, 2, 1])
-    for col, h in zip(header_cols, ["Company", "State", "Signals", "Industry", "Last Signal", "Action"]):
+    header_cols = st.columns([3, 1.2, 1, 1, 2, 2])
+    for col, h in zip(header_cols, ["Company", "Action", "State", "Signals", "Industry", "Last Signal"]):
         col.markdown(f"**{h}**")
     st.divider()
 
     for acct in accounts:
         acct_id = acct["id"]
-        cols = st.columns([3, 1, 1, 2, 2, 1])
+        cols = st.columns([3, 1.2, 1, 1, 2, 2])
         signal_date_str = str(acct.get("last_signal_date") or "")[:10] or "—"
         sc = acct.get("signal_count") or 0
+        ns_url = acct.get("nscorp_url") or ""
+        name = acct.get("company_name") or "—"
 
         with cols[0]:
-            domain = acct.get("domain") or ""
-            name = acct.get("company_name") or "—"
-            if domain:
-                st.markdown(f"**[{name}](https://{domain})**")
+            if ns_url:
+                st.markdown(f'**<a href="{ns_url}" target="_blank" style="color:inherit;text-decoration:none;">{name}</a>**', unsafe_allow_html=True)
             else:
                 st.markdown(f"**{name}**")
         with cols[1]:
-            st.write(acct.get("state") or "—")
-        with cols[2]:
-            st.write(str(sc))
-        with cols[3]:
-            st.write(acct.get("industry") or "—")
-        with cols[4]:
-            st.caption(signal_date_str)
-        with cols[5]:
-            if st.button("View", key=f"chop_view_{acct_id}"):
+            if st.button("View-TCC", key=f"chop_view_{acct_id}"):
                 st.session_state.selected_account = acct_id
                 go("account")
+        with cols[2]:
+            st.write(acct.get("state") or "—")
+        with cols[3]:
+            st.write(str(sc))
+        with cols[4]:
+            st.write(acct.get("industry") or "—")
+        with cols[5]:
+            st.caption(signal_date_str)

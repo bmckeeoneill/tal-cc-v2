@@ -5,6 +5,11 @@ import streamlit as st
 import db
 from pages._shared import go
 
+
+@st.cache_data(ttl=120)
+def _accounts_for_search():
+    return db.get_accounts()
+
 _QUICK_LINKS = [
     ("Sales Navigator", "sales_navigator_url"),
     ("ZoomInfo", None, "https://www.zoominfo.com"),
@@ -48,6 +53,19 @@ def render():
                 st.link_button(label, url, use_container_width=True)
             else:
                 st.button(label, disabled=True, use_container_width=True)
+
+    # TAL search bar
+    search_query = st.text_input("Search accounts", placeholder="Search TAL accounts by name...", label_visibility="collapsed")
+    if search_query:
+        q = search_query.lower()
+        results = [a for a in _accounts_for_search() if q in (a.get("company_name") or "").lower()]
+        if results:
+            for a in results[:8]:
+                if st.button(a["company_name"], key=f"dash_search_{a['id']}"):
+                    st.session_state.selected_account = a["id"]
+                    go("account")
+        else:
+            st.caption("No matches found.")
 
     st.divider()
 

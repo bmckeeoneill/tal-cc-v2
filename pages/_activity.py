@@ -59,11 +59,14 @@ def render():
         headline   = s.get("headline") or "—"
 
         cols = st.columns([2, 2, 3, 2, 1, 1])
-        cols[0].markdown(f"**{company}**")
+        if ns_url:
+            cols[0].markdown(f'**<a href="{ns_url}" target="_blank" style="color:inherit;text-decoration:none;">{company}</a>**', unsafe_allow_html=True)
+        else:
+            cols[0].markdown(f"**{company}**")
 
         with cols[1]:
             btn_cols = st.columns(3)
-            if account_id and btn_cols[0].button("View", key=f"act_view_{sig_id}"):
+            if account_id and btn_cols[0].button("View-TCC", key=f"act_view_{sig_id}"):
                 st.session_state.selected_account = account_id
                 go("account")
             if ns_url:

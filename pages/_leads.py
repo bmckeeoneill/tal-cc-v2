@@ -56,7 +56,7 @@ def render_claimed():
             assigned = (a.get("sdr_assigned_at") or "")[:10]
             st.markdown(f"**{a.get('company_name', '—')}** — SDR: {a.get('sdr_name', '—')} · Assigned {assigned}")
         with c2:
-            if st.button("View", key=f"claimed_view_{a['id']}"):
+            if st.button("View-TCC", key=f"claimed_view_{a['id']}"):
                 st.session_state.selected_account = a["id"]
                 go("account")
         st.markdown("---")

@@ -97,19 +97,18 @@ def render():
         st.info("No accounts found. Try adjusting your filters.")
         return
 
-    header_cols = st.columns([0.5, 3, 1, 1, 2, 2, 1])
-    for col, h in zip(header_cols, ["", "Company", "State", "Score", "Industry", "Last Signal", "Action"]):
+    header_cols = st.columns([0.5, 3, 1.2, 1, 1, 2, 2])
+    for col, h in zip(header_cols, ["", "Company", "Action", "State", "Score", "Industry", "Last Signal"]):
         col.markdown(f"**{h}**")
     st.divider()
 
     for acct in accounts:
-        cols = st.columns([0.5, 3, 1, 1, 2, 2, 1])
+        cols = st.columns([0.5, 3, 1.2, 1, 1, 2, 2])
         acct_id = acct["id"]
         is_starred = bool(acct.get("starred"))
 
         with cols[0]:
             star_icon = "★" if is_starred else "☆"
-            star_style = "color:#F4B942;font-size:18px;" if is_starred else "color:#aaa;font-size:18px;"
             if st.button(star_icon, key=f"star_{acct_id}", help="Toggle priority star",
                          use_container_width=False):
                 db.toggle_starred(acct_id, not is_starred)
@@ -118,24 +117,24 @@ def render():
         s = acct.get("score") or 0
         signal_date = acct.get("last_signal_date") or ""
         signal_date_str = str(signal_date)[:10] if signal_date else "—"
+        ns_url = acct.get("nscorp_url") or ""
+        name = acct.get("company_name") or "—"
 
         with cols[1]:
-            domain = acct.get("domain") or ""
-            name = acct.get("company_name") or "—"
-            if domain:
-                st.markdown(f"**[{name}](https://{domain})**")
+            if ns_url:
+                st.markdown(f'**<a href="{ns_url}" target="_blank" style="color:inherit;text-decoration:none;">{name}</a>**', unsafe_allow_html=True)
             else:
                 st.markdown(f"**{name}**")
         with cols[2]:
-            st.write(acct.get("state") or "—")
-        with cols[3]:
-            st.markdown(score_badge(s), unsafe_allow_html=True)
-        with cols[4]:
-            st.write(acct.get("industry") or "—")
-        with cols[5]:
-            sc = acct.get("signal_count") or 0
-            st.caption(f"{sc} signals · {signal_date_str}")
-        with cols[6]:
-            if st.button("View", key=f"view_{acct_id}"):
+            if st.button("View-TCC", key=f"view_{acct_id}"):
                 st.session_state.selected_account = acct_id
                 go("account")
+        with cols[3]:
+            st.write(acct.get("state") or "—")
+        with cols[4]:
+            st.markdown(score_badge(s), unsafe_allow_html=True)
+        with cols[5]:
+            st.write(acct.get("industry") or "—")
+        with cols[6]:
+            sc = acct.get("signal_count") or 0
+            st.caption(f"{sc} signals · {signal_date_str}")
