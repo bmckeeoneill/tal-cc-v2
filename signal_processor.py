@@ -2,7 +2,7 @@
 Signal processing pipeline for TAL Command Center.
 
 Three extraction paths based on signal source:
-  Path A — CRM notification (structured parse, no Claude)
+  Path A — CRM notification (structured parse only — no Claude)
   Path B — Screenshot forward (Claude Vision)
   Path C — Text forward (Claude text)
 
@@ -814,14 +814,7 @@ def process_all_signals() -> dict:
             if source == "crm_notification":
                 company_name, contact_name, signal_type, signal_body = extract_crm_signal(signal)
                 if company_name:
-                    summary_prompt = (
-                        "You are a NetSuite sales intelligence assistant. "
-                        "In 2 sentences: what happened and why it matters for a NetSuite rep.\n\n"
-                        f"Signal: {signal_body}"
-                    )
-                    summary = _claude_text(client, summary_prompt, signal["id"], "signal_summary")
-                    if contact_name:
-                        summary = f"Contact: {contact_name}. " + summary
+                    summary = f"Contact: {contact_name}. {signal_body}" if contact_name else signal_body
 
             # ── Path B: Screenshot forward ────────────────────────────────
             elif source == "screenshot_forward":
